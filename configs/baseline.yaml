@@ -1,0 +1,12 @@
+model: yolov8s.pt
+data: configs/hripcb_local.yaml
+imgsz: 1024
+epochs: 100
+patience: 20
+batch: 4
+seed: 42
+workers: 0
+project: runs
+name: baseline
+amp: false
+device: auto

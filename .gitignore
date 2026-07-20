@@ -1,0 +1,100 @@
+# =============================================================
+# Python
+# =============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# =============================================================
+# Virtual environments
+# =============================================================
+.venv/
+venv/
+env/
+ENV/
+
+# =============================================================
+# Pytest / testing caches
+# =============================================================
+.pytest_cache/
+.cache/
+*.coverage
+htmlcov/
+
+# =============================================================
+# macOS
+# =============================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# =============================================================
+# Jupyter
+# =============================================================
+.ipynb_checkpoints/
+*.ipynb
+
+# =============================================================
+# Dataset images & label caches (too large for Git)
+# Keep HRIPCB_UPDATE/data.yaml but exclude all image splits.
+# Teammates should download / place the dataset locally.
+# =============================================================
+HRIPCB_UPDATE/train/
+HRIPCB_UPDATE/val/
+HRIPCB_UPDATE/test/
+HRIPCB_UPDATE/**/*.cache
+
+# =============================================================
+# Base pretrained weights (download from Ultralytics instead)
+# =============================================================
+yolov8s.pt
+yolov8n.pt
+yolov8m.pt
+yolov8l.pt
+yolov8x.pt
+*.pt
+# --- Exception: keep the trained best checkpoint ---
+!runs/baseline/weights/best.pt
+
+# =============================================================
+# Training run artefacts – intermediate / smoke-test runs
+# Keep only the formal baseline run and evaluation outputs.
+# =============================================================
+# Smoke / experimental detect runs
+runs/detect/
+
+# Last-epoch checkpoint (redundant; best.pt is what matters)
+runs/baseline/weights/last.pt
+
+# Training batch previews and label visualisation images
+# (keep curves + CSV for reproducibility, skip batch JPGs)
+runs/baseline/train_batch*.jpg
+runs/baseline/val_batch*.jpg
+runs/baseline/labels.jpg
+
+# Evaluation batch previews (keep metrics.json + curves)
+runs/evaluation/**/val_batch*.jpg
+runs/evaluation/**/test_batch*.jpg
+
+# =============================================================
+# Editor / IDE
+# =============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =============================================================
+# Misc
+# =============================================================
+*.log
+*.tmp

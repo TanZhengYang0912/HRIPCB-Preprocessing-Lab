@@ -1,0 +1,12 @@
+train: /kaggle/input/hripcb-dataset/HRIPCB_UPDATE/train
+val: /kaggle/input/hripcb-dataset/HRIPCB_UPDATE/val
+test: /kaggle/input/hripcb-dataset/HRIPCB_UPDATE/test
+
+nc: 6
+names:
+  0: Missing_hole
+  1: Mouse_bite
+  2: Open_circuit
+  3: Short
+  4: Spurious_copper
+  5: Spur
