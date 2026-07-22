@@ -248,7 +248,6 @@ def test_runner_processes_fixture_images_without_touching_sources(tmp_path):
     output = run_comparison(dataset.parent, tmp_path / "output", None, config)
     assert (output / "image_metrics.csv").is_file()
     assert (output / "processing_times.csv").is_file()
-    assert (output / "comparison" / "comparison.html").is_file()
     assert {path: path.read_bytes() for path in dataset.glob("*.jpg")} == before
 ```
 

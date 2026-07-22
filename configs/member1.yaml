@@ -1,0 +1,10 @@
+dataset: HRIPCB_UPDATE
+split: test
+seed: 42
+noise_sigmas: [15, 30, 50]
+contrast_alphas: [0.75, 0.5, 0.25]
+visual_noise_sigma: 30
+visual_contrast_alpha: 0.5
+gaussian_kernel_size: 5
+gaussian_sigma_x: 1.0
+jpeg_quality: 95
