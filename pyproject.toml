@@ -7,6 +7,13 @@ name = "hripcb-baseline"
 version = "0.1.0"
 description = "Shared YOLOv8s baseline for HRIPCB PCB defect detection"
 requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10,<13",
+    "PyYAML>=6,<7",
+    "numpy>=2,<3",
+    "opencv-python>=4.10,<6",
+    "scikit-image>=0.24,<1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
