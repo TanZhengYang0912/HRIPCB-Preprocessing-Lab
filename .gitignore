@@ -72,6 +72,9 @@ yolov8x.pt
 # Smoke / experimental detect runs
 runs/detect/
 
+# Member 1 full-resolution preprocessing outputs (generated locally)
+runs/member1/
+
 # Last-epoch checkpoint (redundant; best.pt is what matters)
 runs/baseline/weights/last.pt
 

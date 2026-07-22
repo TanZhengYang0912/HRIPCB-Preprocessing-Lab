@@ -40,7 +40,7 @@
 - `apply_bbhe(image: np.ndarray) -> np.ndarray`
 - All functions accept BGR `uint8` images and return same-shape BGR `uint8` images.
 
-- [ ] **Step 1: Write failing tests for degradation and filtering**
+- [x] **Step 1: Write failing tests for degradation and filtering**
 
 ```python
 def test_noise_is_deterministic_and_bounded(sample_image):
@@ -72,13 +72,13 @@ def test_bbhe_handles_constant_image_without_invalid_values():
     assert np.isfinite(result).all()
 ```
 
-- [ ] **Step 2: Run the focused tests and verify failure**
+- [x] **Step 2: Run the focused tests and verify failure**
 
 Run: `python3 -m pytest tests/test_member1_processing.py -q`
 
 Expected: FAIL because the new package functions do not exist.
 
-- [ ] **Step 3: Add exact dependency declarations**
+- [x] **Step 3: Add exact dependency declarations**
 
 Add these runtime requirements while retaining the existing baseline requirements:
 
@@ -90,7 +90,7 @@ scikit-image>=0.24,<1
 
 Update `pyproject.toml` project dependencies to match the runtime requirements used by this package.
 
-- [ ] **Step 4: Implement deterministic luminance degradation**
+- [x] **Step 4: Implement deterministic luminance degradation**
 
 ```python
 def _to_ycrcb(image: np.ndarray) -> np.ndarray:
@@ -117,7 +117,7 @@ def reduce_luminance_contrast(image, alpha):
 
 Use a shared input validator that rejects non-3-channel or non-`uint8` images, non-positive sigma, and invalid alpha values.
 
-- [ ] **Step 5: Implement Gaussian Filtering and BBHE**
+- [x] **Step 5: Implement Gaussian Filtering and BBHE**
 
 ```python
 def apply_gaussian_filter(image, kernel_size=5, sigma_x=1.0):
@@ -155,7 +155,7 @@ def apply_bbhe(image):
 
 Keep the BBHE implementation luminance-only and preserve the two original chroma channels.
 
-- [ ] **Step 6: Run focused tests and the baseline regression suite**
+- [x] **Step 6: Run focused tests and the baseline regression suite**
 
 Run: `python3 -m pytest tests/test_member1_processing.py -q`
 
@@ -165,7 +165,7 @@ Run: `python3 -m pytest -q`
 
 Expected: all existing baseline tests plus the new tests pass.
 
-- [ ] **Step 7: Commit the pure processing package**
+- [x] **Step 7: Commit the pure processing package**
 
 ```bash
 git add requirements.txt pyproject.toml src/hripcb_member1 tests/test_member1_processing.py
@@ -186,7 +186,7 @@ git commit -m "feat: add Member 1 Gaussian and BBHE processing"
 - `calculate_ssim(reference: np.ndarray, candidate: np.ndarray) -> float`
 - `variant_name(prefix: str, value: float) -> str`
 
-- [ ] **Step 1: Write failing metric tests**
+- [x] **Step 1: Write failing metric tests**
 
 ```python
 def test_identical_images_have_infinite_psnr_and_unit_ssim():
@@ -201,23 +201,23 @@ def test_variant_seed_and_names_are_stable():
     assert variant_name("alpha", 0.5) == "alpha050"
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `python3 -m pytest tests/test_member1_metrics.py -q`
 
 Expected: FAIL because the metrics module does not exist.
 
-- [ ] **Step 3: Implement metrics and stable naming**
+- [x] **Step 3: Implement metrics and stable naming**
 
 Use SHA-256 bytes for stable seed derivation rather than Python's process-randomized `hash()`. Calculate PSNR from the BGR mean squared error. Calculate SSIM with `skimage.metrics.structural_similarity(channel_axis=2, data_range=255)`, returning a float.
 
-- [ ] **Step 4: Run metric tests**
+- [x] **Step 4: Run metric tests**
 
 Run: `python3 -m pytest tests/test_member1_metrics.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit metrics**
+- [x] **Step 5: Commit metrics**
 
 ```bash
 git add src/hripcb_member1/metrics.py tests/test_member1_metrics.py
@@ -240,7 +240,7 @@ git commit -m "feat: add Member 1 quality metrics"
 - `run_comparison(dataset_root: Path, output_root: Path, sample_name: str | None, config: dict) -> Path`
 - CLI: `python3 scripts/run_member1_comparison.py --dataset HRIPCB_UPDATE --output runs/member1 --config configs/member1.yaml`
 
-- [ ] **Step 1: Write failing runner tests**
+- [x] **Step 1: Write failing runner tests**
 
 ```python
 def test_runner_processes_fixture_images_without_touching_sources(tmp_path):
@@ -252,13 +252,13 @@ def test_runner_processes_fixture_images_without_touching_sources(tmp_path):
     assert {path: path.read_bytes() for path in dataset.glob("*.jpg")} == before
 ```
 
-- [ ] **Step 2: Run the runner test and verify failure**
+- [x] **Step 2: Run the runner test and verify failure**
 
 Run: `python3 -m pytest tests/test_member1_runner.py -q`
 
 Expected: FAIL because the runner does not exist.
 
-- [ ] **Step 3: Add the fixed configuration**
+- [x] **Step 3: Add the fixed configuration**
 
 `configs/member1.yaml` must contain:
 
@@ -275,7 +275,7 @@ gaussian_sigma_x: 1.0
 jpeg_quality: 95
 ```
 
-- [ ] **Step 4: Implement deterministic batch processing**
+- [x] **Step 4: Implement deterministic batch processing**
 
 Process files in sorted order. For each source image:
 
@@ -289,7 +289,7 @@ Process files in sorted order. For each source image:
 
 The source file must be read-only from the runner's perspective; never write into `HRIPCB_UPDATE`.
 
-- [ ] **Step 5: Implement CSV and manifest outputs**
+- [x] **Step 5: Implement CSV and manifest outputs**
 
 Write:
 
@@ -297,7 +297,7 @@ Write:
 - `processing_times.csv`: one row per source/variant with `source`, `variant`, and `milliseconds`.
 - `run_manifest.json`: config, source count, selected sample, output directories, and package versions.
 
-- [ ] **Step 6: Run the fixture test and full test suite**
+- [x] **Step 6: Run the fixture test and full test suite**
 
 Run: `python3 -m pytest tests/test_member1_runner.py -q`
 
@@ -307,7 +307,7 @@ Run: `python3 -m pytest -q`
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit the runner**
+- [x] **Step 7: Commit the runner**
 
 ```bash
 git add configs/member1.yaml src/hripcb_member1/runner.py scripts/run_member1_comparison.py tests/test_member1_runner.py
@@ -327,7 +327,7 @@ git commit -m "feat: add Member 1 batch comparison runner"
 - `build_comparison_grid(images: dict[str, np.ndarray], output_path: Path) -> Path`
 - `write_comparison_html(output_dir: Path, context: dict) -> Path`
 
-- [ ] **Step 1: Write failing report tests**
+- [x] **Step 1: Write failing report tests**
 
 ```python
 def test_report_contains_all_required_panel_labels(tmp_path):
@@ -348,13 +348,13 @@ def test_report_contains_all_required_panel_labels(tmp_path):
     assert "Gaussian + BBHE" in html
 ```
 
-- [ ] **Step 2: Run the report test and verify failure**
+- [x] **Step 2: Run the report test and verify failure**
 
 Run: `python3 -m pytest tests/test_member1_report.py -q`
 
 Expected: FAIL because the report module does not exist.
 
-- [ ] **Step 3: Implement a six-panel grid and HTML page**
+- [x] **Step 3: Implement a six-panel grid and HTML page**
 
 The page must show the fixed representative sample in this order:
 
@@ -365,11 +365,11 @@ Low Contrast (alpha=0.50) | BBHE | Gaussian + BBHE
 
 Include parameter badges, source filename, a short explanation of each transformation, and links to the full-resolution output files. Use relative paths so the page works from the output directory without a web framework.
 
-- [ ] **Step 4: Connect the report to the runner**
+- [x] **Step 4: Connect the report to the runner**
 
 Select the first sorted test image by default; allow `--sample <filename>` to override it. Save `comparison/comparison_grid.jpg`, `comparison/comparison.html`, and `comparison/representative_manifest.json`.
 
-- [ ] **Step 5: Run report tests and full tests**
+- [x] **Step 5: Run report tests and full tests**
 
 Run: `python3 -m pytest tests/test_member1_report.py -q`
 
@@ -379,7 +379,7 @@ Run: `python3 -m pytest -q`
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit the report**
+- [x] **Step 6: Commit the report**
 
 ```bash
 git add src/hripcb_member1/report.py src/hripcb_member1/runner.py tests/test_member1_report.py
@@ -394,7 +394,7 @@ git commit -m "feat: add Member 1 visual comparison report"
 - Generate: `runs/member1/`
 - Modify: `README.md`
 
-- [ ] **Step 1: Run the real batch comparison**
+- [x] **Step 1: Run the real batch comparison**
 
 Run:
 
@@ -407,7 +407,7 @@ python3 scripts/run_member1_comparison.py \
 
 Expected: all 70 test images are processed; no source image changes; the HTML page and CSV/JSON summaries exist.
 
-- [ ] **Step 2: Verify output counts and source immutability**
+- [x] **Step 2: Verify output counts and source immutability**
 
 Run:
 
@@ -427,17 +427,17 @@ print("member1 output verification: OK")
 PY
 ```
 
-- [ ] **Step 3: Update README with Member 1 commands and outputs**
+- [x] **Step 3: Update README with Member 1 commands and outputs**
 
 Document the exact command, representative page path, degradation parameters, and the fact that `best.pt` is intentionally not used in this phase.
 
-- [ ] **Step 4: Run the complete regression suite**
+- [x] **Step 4: Run the complete regression suite**
 
 Run: `python3 -m pytest -q`
 
 Expected: all baseline and Member 1 tests pass.
 
-- [ ] **Step 5: Commit implementation and documentation**
+- [x] **Step 5: Commit implementation and documentation**
 
 ```bash
 git add README.md configs/member1.yaml src/hripcb_member1 scripts/run_member1_comparison.py tests

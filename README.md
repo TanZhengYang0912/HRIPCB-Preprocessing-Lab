@@ -157,6 +157,36 @@ python3 scripts/evaluate_baseline.py \
   --split test
 ```
 
+## 👤 Member 1: Gaussian Filtering + BBHE
+
+This phase creates image comparisons only. It intentionally does not load or modify `best.pt`.
+
+Run the comparison over all 70 clean test images:
+
+```bash
+python3 scripts/run_member1_comparison.py \
+  --dataset HRIPCB_UPDATE \
+  --output runs/member1 \
+  --config configs/member1.yaml
+```
+
+The runner creates controlled degradation and processing variants using:
+
+- Gaussian noise `sigma=15, 30, 50`
+- Low contrast `alpha=0.75, 0.50, 0.25`
+- Gaussian Filtering kernel `5x5`, `sigmaX=1.0`
+- Representative visual setting: `sigma=30`, `alpha=0.50`
+
+Open the six-panel representative comparison:
+
+```bash
+open runs/member1/comparison/comparison.html
+```
+
+The page compares Original, Noisy, Gaussian Filtering, Low Contrast, BBHE, and Gaussian + BBHE. Batch outputs are saved under `runs/member1/images/`; image-quality results are in `image_metrics.csv`, and processing times are in `processing_times.csv`.
+
+The generated Member 1 outputs are local experiment artifacts and are not committed because they contain 1050 full-resolution JPEG images. The source dataset remains unchanged.
+
 ---
 
 ## 🤝 Collaboration Rules
