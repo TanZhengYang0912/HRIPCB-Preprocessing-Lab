@@ -233,6 +233,7 @@ git commit -m "feat: add Member 1 quality metrics"
 - Create: `src/hripcb_member1/runner.py`
 - Create: `scripts/run_member1_comparison.py`
 - Create: `tests/test_member1_runner.py`
+- Create: `tests/test_member1_cli.py`
 
 **Interfaces:**
 - `load_member1_config(path: Path) -> dict`

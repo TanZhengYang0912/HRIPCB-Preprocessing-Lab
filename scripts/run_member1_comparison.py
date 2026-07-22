@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from hripcb_member1.runner import load_member1_config, run_comparison
 
