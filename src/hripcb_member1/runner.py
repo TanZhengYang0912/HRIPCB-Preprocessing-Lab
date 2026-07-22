@@ -16,6 +16,7 @@ import yaml
 from .degradation import add_luminance_gaussian_noise, reduce_luminance_contrast
 from .filters import apply_bbhe, apply_gaussian_filter
 from .metrics import calculate_psnr, calculate_ssim, derive_variant_seed, variant_name
+from .report import build_comparison_grid, write_comparison_html
 
 
 def load_member1_config(path: Path) -> dict:
@@ -130,6 +131,7 @@ def run_comparison(
     global_seed = int(config["seed"])
     noise_sigmas = [float(value) for value in config["noise_sigmas"]]
     contrast_alphas = [float(value) for value in config["contrast_alphas"]]
+    representative_images: dict[str, np.ndarray] = {}
 
     for source in source_paths:
         clean = cv2.imread(str(source), cv2.IMREAD_COLOR)
@@ -152,6 +154,8 @@ def run_comparison(
             timing_rows=timing_rows,
             started=started,
         )
+        if source.name == selected_sample:
+            representative_images["Original"] = clean
         variants.append(original_variant) if original_variant not in variants else None
 
         for sigma in noise_sigmas:
@@ -176,6 +180,8 @@ def run_comparison(
                 timing_rows=timing_rows,
                 started=noisy_started,
             )
+            if source.name == selected_sample and sigma == float(config["visual_noise_sigma"]):
+                representative_images["Noisy"] = noisy
             gaussian_variant = f"gaussian_{sigma_label}"
             gaussian_started = time.perf_counter()
             gaussian = apply_gaussian_filter(noisy, kernel_size=kernel_size, sigma_x=sigma_x)
@@ -192,6 +198,8 @@ def run_comparison(
                 timing_rows=timing_rows,
                 started=gaussian_started,
             )
+            if source.name == selected_sample and sigma == float(config["visual_noise_sigma"]):
+                representative_images["Gaussian Filtering"] = gaussian
             variants.extend(name for name in (noisy_variant, gaussian_variant) if name not in variants)
 
         for alpha in contrast_alphas:
@@ -212,6 +220,8 @@ def run_comparison(
                 timing_rows=timing_rows,
                 started=low_started,
             )
+            if source.name == selected_sample and alpha == float(config["visual_contrast_alpha"]):
+                representative_images["Low Contrast"] = low_contrast
             bbhe_variant = f"bbhe_{alpha_label}"
             bbhe_started = time.perf_counter()
             bbhe = apply_bbhe(low_contrast)
@@ -228,6 +238,8 @@ def run_comparison(
                 timing_rows=timing_rows,
                 started=bbhe_started,
             )
+            if source.name == selected_sample and alpha == float(config["visual_contrast_alpha"]):
+                representative_images["BBHE"] = bbhe
             variants.extend(name for name in (low_variant, bbhe_variant) if name not in variants)
 
         combined_noise = float(config["visual_noise_sigma"])
@@ -256,6 +268,8 @@ def run_comparison(
             timing_rows=timing_rows,
             started=combined_started,
         )
+        if source.name == selected_sample:
+            representative_images["Noisy + Low Contrast"] = combined_noisy
         combined_result_variant = f"combined_gaussian_bbhe_{combined_label}"
         combined_result_started = time.perf_counter()
         combined_result = apply_bbhe(
@@ -274,6 +288,8 @@ def run_comparison(
             timing_rows=timing_rows,
             started=combined_result_started,
         )
+        if source.name == selected_sample:
+            representative_images["Gaussian + BBHE"] = combined_result
         variants.extend(
             name
             for name in (combined_noisy_variant, combined_result_variant)
@@ -284,6 +300,42 @@ def run_comparison(
         output_root / "image_metrics.csv",
         metric_rows,
         ["source", "variant", "noise_sigma", "contrast_alpha", "psnr", "ssim", "path"],
+    )
+    comparison_dir = output_root / "comparison"
+    grid_order = (
+        "Original",
+        "Noisy",
+        "Gaussian Filtering",
+        "Low Contrast",
+        "BBHE",
+        "Gaussian + BBHE",
+    )
+    grid_images = {name: representative_images[name] for name in grid_order}
+    build_comparison_grid(grid_images, comparison_dir / "comparison_grid.jpg")
+    panel_names = [
+        ("Original", "original", "Clean source image."),
+        ("Noisy", f"noisy_sigma{int(config['visual_noise_sigma'])}", "Controlled Gaussian noise input."),
+        ("Gaussian Filtering", f"gaussian_sigma{int(config['visual_noise_sigma'])}", "Gaussian blur after noise injection."),
+        ("Low Contrast", f"low_contrast_{variant_name('alpha', float(config['visual_contrast_alpha']))}", "Contrast-reduced input."),
+        ("BBHE", f"bbhe_{variant_name('alpha', float(config['visual_contrast_alpha']))}", "Brightness-preserving bi-histogram equalization."),
+        ("Gaussian + BBHE", f"combined_gaussian_bbhe_sigma{int(config['visual_noise_sigma'])}_{variant_name('alpha', float(config['visual_contrast_alpha']))}", "Denoising followed by contrast enhancement."),
+    ]
+    panels = [
+        {
+            "label": label,
+            "src": f"../images/{variant}/{selected_sample}",
+            "description": description,
+        }
+        for label, variant, description in panel_names
+    ]
+    comparison_context = {
+        "source": selected_sample,
+        "parameters": f"Gaussian noise sigma={int(config['visual_noise_sigma'])}; contrast alpha={float(config['visual_contrast_alpha']):.2f}; Gaussian kernel={kernel_size}x{kernel_size}; sigmaX={sigma_x}",
+        "panels": panels,
+    }
+    write_comparison_html(comparison_dir, comparison_context)
+    (comparison_dir / "representative_manifest.json").write_text(
+        json.dumps(comparison_context, indent=2), encoding="utf-8"
     )
     _write_csv(
         output_root / "processing_times.csv",
