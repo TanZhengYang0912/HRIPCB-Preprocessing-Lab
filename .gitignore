@@ -93,6 +93,7 @@ runs/member3/tuning/
 runs/member3/samples/
 runs/member3/raw_data.yaml
 runs/member3_baseline_check/
+runs/member3_demo/
 
 # =============================================================
 # Editor / IDE

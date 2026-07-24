@@ -176,6 +176,33 @@ The experiment tests noise levels `σ=10, 25, 40`, uses fixed seeds `42, 43,
 44`, and writes `summary.json`, `metrics.json`, and `comparison.csv` under
 `runs/member3/`.
 
+### Interactive Member 3 Demo
+
+Install the dashboard dependency and launch the local Streamlit app:
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 -m streamlit run scripts/member3_demo.py
+```
+
+The dashboard accepts one JPG, JPEG, or PNG PCB image and shows the original
+image, the selected preprocessing result, and YOLOv8s detection boxes. It
+supports Clean, Noisy, Bilateral Filtering, AGCWD, and Bilateral + AGCWD,
+using the tuned Member 3 parameters (`d=7`, `sigmaColor=75`, `sigmaSpace=75`,
+`alpha=0.5`). The detector remains the frozen
+`runs/baseline/weights/best.pt` checkpoint.
+
+Set the optional dataset-root field to `HRIPCB_UPDATE` (or the external
+dataset path) when you upload a known validation/test image and want to see
+its Ground Truth boxes. Interactive output images and metadata are saved
+under `runs/member3_demo/`.
+
+The `runs/member3/comparison.csv` file is the batch experiment summary: each
+row represents one condition, noise level, and split. Use its `test` rows for
+dataset-level Precision, Recall, F1, mAP50, and mAP50-95. The dashboard's
+single-image detections are visual results and should not be interpreted as
+dataset-level mAP.
+
 ---
 
 ## 🤝 Collaboration Rules
