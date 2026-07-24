@@ -157,6 +157,25 @@ python3 scripts/evaluate_baseline.py \
   --split test
 ```
 
+## 🔬 Member 3: Bilateral Filtering + AGCWD
+
+Member 3's Mode A experiment keeps the shared `best.pt` detector frozen. It
+adds reproducible Gaussian noise to the Y channel, applies Bilateral Filtering
+and AGCWD to Y only, and evaluates the same detector on clean, noisy, ablated,
+and combined inputs. Validation selects one global parameter combination;
+the test split is used only for the final comparison.
+
+```bash
+python3 scripts/run_member3.py \
+  --dataset-root /path/to/HRIPCB_UPDATE \
+  --weights runs/baseline/weights/best.pt \
+  --output runs/member3
+```
+
+The experiment tests noise levels `σ=10, 25, 40`, uses fixed seeds `42, 43,
+44`, and writes `summary.json`, `metrics.json`, and `comparison.csv` under
+`runs/member3/`.
+
 ---
 
 ## 🤝 Collaboration Rules

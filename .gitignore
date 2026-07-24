@@ -85,6 +85,15 @@ runs/baseline/labels.jpg
 runs/evaluation/**/val_batch*.jpg
 runs/evaluation/**/test_batch*.jpg
 
+# Member 3 generated high-resolution inputs and Ultralytics run artefacts.
+# Keep the compact metrics/summary files under runs/member3/ trackable.
+runs/member3/processed/
+runs/member3/evaluation/
+runs/member3/tuning/
+runs/member3/samples/
+runs/member3/raw_data.yaml
+runs/member3_baseline_check/
+
 # =============================================================
 # Editor / IDE
 # =============================================================
