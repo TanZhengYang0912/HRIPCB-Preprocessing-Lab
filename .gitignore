@@ -95,6 +95,14 @@ runs/member3/raw_data.yaml
 runs/member3_baseline_check/
 runs/member3_demo/
 
+# Member 3 formal validation artefacts.
+# Keep the compact comparison.csv, metrics.json, and summary.json at this root
+# so the team can share the formal validation ranking without committing
+# regenerated datasets, images, or Ultralytics plots.
+runs/member3_formal/processed/
+runs/member3_formal/evaluation/
+runs/member3_formal/*.log
+
 # =============================================================
 # Editor / IDE
 # =============================================================
