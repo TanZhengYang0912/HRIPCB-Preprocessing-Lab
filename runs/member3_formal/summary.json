@@ -1,0 +1,16 @@
+{
+  "member": "Member 3",
+  "dataset_split": "val",
+  "validation_images": 138,
+  "checkpoint": "/Users/tanzhengyang/Documents/GitHub/Image_Processing/runs/baseline/weights/best.pt",
+  "device": "mps",
+  "imgsz": 1024,
+  "conf": 0.25,
+  "iou": 0.7,
+  "workers": 0,
+  "primary_metric": "mAP50-95",
+  "best_condition_id": "bilateral_d5_c25_s25",
+  "best_map50_95": 0.523034631185784,
+  "comparison_file": "/Users/tanzhengyang/Documents/GitHub/Image_Processing/runs/member3_formal/comparison.csv",
+  "metrics_file": "/Users/tanzhengyang/Documents/GitHub/Image_Processing/runs/member3_formal/metrics.json"
+}
