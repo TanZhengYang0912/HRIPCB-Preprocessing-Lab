@@ -159,6 +159,8 @@ python3 scripts/evaluate_baseline.py \
 
 ## 🔬 Member 3: Bilateral Filtering + AGCWD
 
+### Preliminary noise study
+
 Member 3's Mode A experiment keeps the shared `best.pt` detector frozen. It
 adds reproducible Gaussian noise to the Y channel, applies Bilateral Filtering
 and AGCWD to Y only, and evaluates the same detector on clean, noisy, ablated,
@@ -176,6 +178,27 @@ The experiment tests noise levels `σ=10, 25, 40`, uses fixed seeds `42, 43,
 44`, and writes `summary.json`, `metrics.json`, and `comparison.csv` under
 `runs/member3/`.
 
+### Formal validation study
+
+The team-agreed formal Member 3 study uses validation data only. It compares
+16 clean-image preprocessing conditions with the frozen baseline checkpoint:
+Original, three Bilateral presets, three AGCWD plus gamma presets, and nine
+combined presets. It selects the Member 3 candidate by mAP50-95 and writes
+results under `runs/member3_formal/`; it does not use or rank test data.
+
+```bash
+python3 scripts/run_member3_formal.py \
+  --dataset-root /path/to/HRIPCB_UPDATE \
+  --weights runs/baseline/weights/best.pt \
+  --output runs/member3_formal
+```
+
+The fixed contract is `val` (138 images), `imgsz=1024`, `conf=0.25`,
+`iou=0.70`, `workers=0`, and automatic MPS/CPU device selection. Bilateral
+presets are `(5,25,25)`, `(7,50,50)`, and `(9,75,75)`; gamma presets are
+`0.8`, `1.0`, and `1.2`. The implementation keeps AGCWD alpha fixed at `0.75`
+and applies the selected global gamma after AGCWD.
+
 ### Interactive Member 3 Demo
 
 Install the dashboard dependency and launch the local Streamlit app:
@@ -186,20 +209,20 @@ python3 -m streamlit run scripts/member3_demo.py
 ```
 
 The dashboard accepts one JPG, JPEG, or PNG PCB image and shows the original
-image, the selected preprocessing result, and YOLOv8s detection boxes. It
-supports Clean, Noisy, Bilateral Filtering, AGCWD, and Bilateral + AGCWD,
-using the tuned Member 3 parameters (`d=7`, `sigmaColor=75`, `sigmaSpace=75`,
-`alpha=0.5`). The detector remains the frozen
-`runs/baseline/weights/best.pt` checkpoint.
+image, the selected formal preprocessing result, and YOLOv8s detection boxes.
+It supports Original, Bilateral Filtering, AGCWD plus gamma, and Bilateral
+Filtering plus AGCWD plus gamma with the formal presets. The detector remains
+the frozen `runs/baseline/weights/best.pt` checkpoint.
 
 Set the optional dataset-root field to `HRIPCB_UPDATE` (or the external
 dataset path) when you upload a known validation/test image and want to see
 its Ground Truth boxes. Interactive output images and metadata are saved
 under `runs/member3_demo/`.
 
-The `runs/member3/comparison.csv` file is the batch experiment summary: each
-row represents one condition, noise level, and split. Use its `test` rows for
-dataset-level Precision, Recall, F1, mAP50, and mAP50-95. The dashboard's
+The `runs/member3_formal/comparison.csv` file is the formal validation summary:
+each row records the complete settings, detection metrics, PSNR, SSIM, and
+processing time for one condition. The dashboard never combines these
+validation results with the preliminary `runs/member3/` test rows. Its
 single-image detections are visual results and should not be interpreted as
 dataset-level mAP.
 

@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the legacy noise experiment unchanged. Add a focused module for formal condition definitions, Y-channel preprocessing, quality metrics, dataset preparation and normalized records. A dedicated CLI evaluates only validation data; the dashboard selects formal presets and reads only formal validation results.
 
-**Tech Stack:** Python 3.10+, NumPy, OpenCV, scikit-image, Ultralytics YOLOv8s, Streamlit, pytest.
+**Tech Stack:** Python 3.10+, NumPy, OpenCV, Ultralytics YOLOv8s, Streamlit, pytest.
 
 ## Global Constraints
 
@@ -62,7 +62,7 @@ FORMAL_GAMMAS = (0.8, 1.0, 1.2)
 AGCWD_ALPHA = 0.75
 ```
 
-Implement global gamma after AGCWD with `round(255 * (Y / 255) ** gamma)`, clipped to `uint8`. Add `scikit-image>=0.22,<1` and compute PSNR/SSIM with `data_range=255` and `channel_axis=2`.
+Implement global gamma after AGCWD with `round(255 * (Y / 255) ** gamma)`, clipped to `uint8`. Compute RGB PSNR with OpenCV and mean per-channel Gaussian-window SSIM with OpenCV/NumPy.
 
 - [ ] **Step 4: Write and run processing tests.**
 

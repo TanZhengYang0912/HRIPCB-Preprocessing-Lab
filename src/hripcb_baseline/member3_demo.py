@@ -28,6 +28,20 @@ CONDITION_LABELS = (
     "AGCWD",
     "Bilateral + AGCWD",
 )
+SUMMARY_CONDITION_LABELS = {
+    "clean": "Clean (original image)",
+    "noisy": "Gaussian noise only",
+    "bilateral": "Bilateral filtering only",
+    "agcwd": "AGCWD only",
+    "member3": "Member 3: Bilateral filtering + AGCWD",
+}
+SUMMARY_CONDITION_KEYS = {
+    "Clean": "clean",
+    "Noisy": "noisy",
+    "Bilateral Filtering": "bilateral",
+    "AGCWD": "agcwd",
+    "Bilateral + AGCWD": "member3",
+}
 CLASS_NAMES = (
     "Missing_hole",
     "Mouse_bite",
@@ -38,6 +52,49 @@ CLASS_NAMES = (
 )
 DEMO_BILATERAL = BilateralConfig(7, 75.0, 75.0)
 DEMO_AGCWD_ALPHA = 0.5
+
+
+def describe_summary_condition(condition: str) -> str:
+    """Return a user-facing explanation for a batch-summary condition."""
+
+    condition_key = str(condition).strip().lower()
+    return SUMMARY_CONDITION_LABELS.get(condition_key, condition)
+
+
+def filter_summary_rows_for_selection(
+    rows: Sequence[Mapping[str, str]],
+    condition: str,
+    sigma: int,
+) -> list[dict[str, str]]:
+    """Filter test-summary rows to match the interactive sidebar selection."""
+
+    condition_key = SUMMARY_CONDITION_KEYS.get(condition)
+    if condition_key is None:
+        return []
+    selected_sigma = str(int(sigma))
+    return [
+        dict(row)
+        for row in rows
+        if row.get("condition") == condition_key
+        and (
+            condition_key == "clean"
+            or row.get("sigma") == selected_sigma
+        )
+    ]
+
+
+def filter_formal_summary_rows(
+    rows: Sequence[Mapping[str, str]],
+    condition_id: str,
+) -> list[dict[str, str]]:
+    """Return the one formal validation row matching a selected condition."""
+
+    return [
+        dict(row)
+        for row in rows
+        if row.get("dataset_split") == "val"
+        and row.get("condition_id") == condition_id
+    ]
 
 
 def _validate_rgb_image(image: np.ndarray) -> None:

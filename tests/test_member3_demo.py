@@ -7,7 +7,10 @@ import pytest
 from hripcb_baseline.member3_demo import (
     CONDITION_LABELS,
     CLASS_NAMES,
+    describe_summary_condition,
     draw_detections,
+    filter_formal_summary_rows,
+    filter_summary_rows_for_selection,
     filter_detections,
     find_matching_label,
     load_ground_truth,
@@ -215,6 +218,45 @@ def test_load_summary_rows_filters_test_split(tmp_path):
 
 def test_load_summary_rows_returns_empty_for_missing_csv(tmp_path):
     assert load_summary_rows(tmp_path / "missing.csv") == []
+
+
+def test_describe_summary_condition_explains_each_experiment_variant():
+    assert describe_summary_condition("clean") == "Clean (original image)"
+    assert describe_summary_condition("noisy") == "Gaussian noise only"
+    assert describe_summary_condition("bilateral") == "Bilateral filtering only"
+    assert describe_summary_condition("agcwd") == "AGCWD only"
+    assert (
+        describe_summary_condition("member3")
+        == "Member 3: Bilateral filtering + AGCWD"
+    )
+    assert describe_summary_condition("new_condition") == "new_condition"
+
+
+def test_filter_summary_rows_matches_sidebar_condition_and_noise_level():
+    rows = [
+        {"condition": "clean", "sigma": "", "split": "test"},
+        {"condition": "noisy", "sigma": "10", "split": "test"},
+        {"condition": "noisy", "sigma": "25", "split": "test"},
+        {"condition": "member3", "sigma": "10", "split": "test"},
+    ]
+
+    assert filter_summary_rows_for_selection(rows, "Noisy", 25) == [rows[2]]
+    assert filter_summary_rows_for_selection(rows, "Bilateral + AGCWD", 10) == [
+        rows[3]
+    ]
+    assert filter_summary_rows_for_selection(rows, "Clean", 40) == [rows[0]]
+    assert filter_summary_rows_for_selection(rows, "AGCWD", 10) == []
+
+
+def test_filter_formal_summary_rows_matches_exact_validation_condition():
+    rows = [
+        {"condition_id": "original", "dataset_split": "val"},
+        {"condition_id": "combined_d7_c50_s50_a0.75_g1", "dataset_split": "val"},
+        {"condition_id": "original", "dataset_split": "test"},
+    ]
+
+    assert filter_formal_summary_rows(rows, "original") == [rows[0]]
+    assert filter_formal_summary_rows(rows, "missing") == []
 
 
 def test_demo_script_compiles():

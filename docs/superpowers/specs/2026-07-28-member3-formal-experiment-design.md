@@ -73,10 +73,10 @@ All preprocessing operates on Y in YCrCb; Cr and Cb are preserved. Global
 gamma correction uses `output = 255 * (input / 255) ** gamma` with rounding
 and clipping to `uint8`.
 
-The implementation adds `scikit-image` for its standard structural-similarity
-calculation. PSNR and SSIM compare each processed image to its corresponding
-original validation image; they describe image fidelity rather than detection
-accuracy.
+The implementation uses OpenCV/NumPy implementations of PSNR and standard
+Gaussian-window SSIM, avoiding an additional runtime dependency. PSNR and SSIM
+compare each processed image to its corresponding original validation image;
+they describe image fidelity rather than detection accuracy.
 
 ## Result Record
 
