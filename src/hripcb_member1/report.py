@@ -58,14 +58,63 @@ def write_comparison_html(output_dir: Path, context: dict) -> Path:
     source = html.escape(str(context["source"]))
     parameters = html.escape(str(context.get("parameters", "")))
     panels = context.get("panels", [])
+    metric_rows = context.get("model_metrics", [])
+    metrics_by_variant = {str(row["variant"]): row for row in metric_rows}
+    label_variants = {
+        "Original": "original",
+        "Gaussian Filtering": "gaussian",
+        "BBHE": "bbhe",
+        "Gaussian + BBHE": "gaussian_bbhe",
+    }
+
+    def score_card(panel: dict) -> str:
+        variant = str(panel.get("variant") or label_variants.get(str(panel["label"]), ""))
+        row = metrics_by_variant.get(variant)
+        if row is None:
+            return ""
+        values = (
+            ("Precision", "precision"),
+            ("Recall", "recall"),
+            ("mAP50", "map50"),
+            ("mAP50-95", "map50_95"),
+            ("F1", "f1"),
+        )
+        cells = "".join(
+            f"<div><span>{label}</span><strong>{float(row[key]):.4f}</strong></div>"
+            for label, key in values
+        )
+        return f'<div class="score-card"><h3>YOLO scores</h3><div class="score-grid">{cells}</div></div>'
+
     panel_html = "\n".join(
         f"""<article class=\"panel\">
           <h2>{html.escape(str(panel['label']))}</h2>
           <a href=\"{html.escape(str(panel['src']))}\"><img src=\"{html.escape(str(panel['src']))}\" alt=\"{html.escape(str(panel['label']))}\"></a>
           <p>{html.escape(str(panel.get('description', '')))}</p>
+          {score_card(panel)}
         </article>"""
         for panel in panels
     )
+    metrics_html = ""
+    if metric_rows:
+        rows_html = "\n".join(
+            "<tr>"
+            f"<td>{html.escape(str(row['variant']))}</td>"
+            f"<td>{float(row['precision']):.4f}</td>"
+            f"<td>{float(row['recall']):.4f}</td>"
+            f"<td>{float(row['map50']):.4f}</td>"
+            f"<td>{float(row['map50_95']):.4f}</td>"
+            f"<td>{float(row['f1']):.4f}</td>"
+            "</tr>"
+            for row in metric_rows
+        )
+        metrics_html = f"""
+    <section class=\"metrics\">
+      <h2>Overall comparison table</h2>
+      <table>
+        <thead><tr><th>Variant</th><th>Precision</th><th>Recall</th><th>mAP50</th><th>mAP50-95</th><th>F1</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+      </table>
+    </section>"""
     document = f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -84,6 +133,17 @@ def write_comparison_html(output_dir: Path, context: dict) -> Path:
     .panel h2 {{ font-size: 18px; margin: 0 0 10px; }}
     .panel img {{ display: block; width: 100%; height: auto; border-radius: 8px; background: #eef1f3; }}
     .panel p {{ color: #52606d; line-height: 1.45; min-height: 42px; }}
+    .score-card {{ margin-top: 14px; padding-top: 12px; border-top: 1px solid #e5e7eb; }}
+    .score-card h3 {{ margin: 0 0 9px; font-size: 14px; color: #1f4b99; }}
+    .score-grid {{ display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }}
+    .score-grid div {{ background: #f4f7fb; border-radius: 7px; padding: 7px 4px; text-align: center; }}
+    .score-grid span {{ display: block; color: #52606d; font-size: 10px; white-space: nowrap; }}
+    .score-grid strong {{ display: block; margin-top: 3px; color: #17202a; font-size: 12px; }}
+    .metrics {{ margin-top: 24px; background: white; border-radius: 14px; padding: 18px; box-shadow: 0 5px 18px rgba(23, 32, 42, .08); overflow-x: auto; }}
+    .metrics h2 {{ margin-top: 0; font-size: 20px; }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    th, td {{ text-align: right; padding: 9px 10px; border-bottom: 1px solid #e5e7eb; }}
+    th:first-child, td:first-child {{ text-align: left; }}
     @media (max-width: 1000px) {{ .grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
     @media (max-width: 650px) {{ body {{ padding: 18px; }} .grid {{ grid-template-columns: 1fr; }} }}
   </style>
@@ -99,6 +159,7 @@ def write_comparison_html(output_dir: Path, context: dict) -> Path:
   <section class=\"grid\">
     {panel_html}
   </section>
+  {metrics_html}
 </main>
 </body>
 </html>

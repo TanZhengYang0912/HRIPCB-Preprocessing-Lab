@@ -1,0 +1,31 @@
+module: member3
+dataset: HRIPCB_UPDATE
+split: val
+checkpoint: runs/baseline/weights/best.pt
+data_config: configs/hripcb_local.yaml
+imgsz: 1024
+conf: 0.25
+iou: 0.7
+device: auto
+workers: 0
+jpeg_quality: 95
+image_metrics_max_side: 256
+primary_metric: map50_95
+model_id: baseline
+model_label: Baseline YOLO
+training_preprocessing: original
+evaluation_type: ablation
+bilateral_presets:
+  - id: b05
+    diameter: 5
+    sigma_color: 25
+    sigma_space: 25
+  - id: b07
+    diameter: 7
+    sigma_color: 50
+    sigma_space: 50
+  - id: b09
+    diameter: 9
+    sigma_color: 75
+    sigma_space: 75
+agcwd_gammas: [0.8, 1.0, 1.2]

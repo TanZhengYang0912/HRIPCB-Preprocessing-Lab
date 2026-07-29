@@ -1,6 +1,4 @@
-# =============================================================
-# Python
-# =============================================================
+# Python caches and build artefacts
 __pycache__/
 *.py[cod]
 *$py.class
@@ -13,91 +11,76 @@ dist/
 build/
 .eggs/
 
-# =============================================================
-# Virtual environments
-# =============================================================
+# Virtual environments and local configuration
 .venv/
 venv/
 env/
 ENV/
+.env
+.env.*
+!.env.example
 
-# =============================================================
-# Pytest / testing caches
-# =============================================================
+# Test, coverage and notebook caches
 .pytest_cache/
 .cache/
 *.coverage
 htmlcov/
+.ipynb_checkpoints/
+*.ipynb
 
-# =============================================================
-# macOS
-# =============================================================
+# macOS and editor files
 .DS_Store
 .AppleDouble
 .LSOverride
 Thumbs.db
-
-# =============================================================
-# Jupyter
-# =============================================================
-.ipynb_checkpoints/
-*.ipynb
-
-# =============================================================
-# Dataset images & label caches (too large for Git)
-# Keep HRIPCB_UPDATE/data.yaml but exclude all image splits.
-# Teammates should download / place the dataset locally.
-# =============================================================
-HRIPCB_UPDATE/train/
-HRIPCB_UPDATE/val/
-HRIPCB_UPDATE/test/
-HRIPCB_UPDATE/**/*.cache
-
-# =============================================================
-# Base pretrained weights (download from Ultralytics instead)
-# =============================================================
-yolov8s.pt
-yolov8n.pt
-yolov8m.pt
-yolov8l.pt
-yolov8x.pt
-*.pt
-# --- Exception: keep the trained best checkpoint ---
-!runs/baseline/weights/best.pt
-
-# =============================================================
-# Training run artefacts – intermediate / smoke-test runs
-# Keep only the formal baseline run and evaluation outputs.
-# =============================================================
-# Smoke / experimental detect runs
-runs/detect/
-
-# Member 1 full-resolution preprocessing outputs (generated locally)
-runs/member1/
-
-# Last-epoch checkpoint (redundant; best.pt is what matters)
-runs/baseline/weights/last.pt
-
-# Training batch previews and label visualisation images
-# (keep curves + CSV for reproducibility, skip batch JPGs)
-runs/baseline/train_batch*.jpg
-runs/baseline/val_batch*.jpg
-runs/baseline/labels.jpg
-
-# Evaluation batch previews (keep metrics.json + curves)
-runs/evaluation/**/val_batch*.jpg
-runs/evaluation/**/test_batch*.jpg
-
-# =============================================================
-# Editor / IDE
-# =============================================================
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# =============================================================
-# Misc
-# =============================================================
+# Local logs and temporary files
 *.log
 *.tmp
+tmp/
+artifacts/
+
+# HRIPCB dataset images and generated label caches.
+# Keep the small YAML metadata files; obtain the image splits locally.
+HRIPCB_UPDATE/train/
+HRIPCB_UPDATE/val/
+HRIPCB_UPDATE/test/
+HRIPCB_UPDATE/**/*.cache
+
+# Pretrained and locally trained model weights.
+# The shared baseline checkpoint is already tracked, so this exception
+# prevents accidental ignoring if it is regenerated in a fresh checkout.
+*.pt
+!runs/
+!runs/baseline/
+!runs/baseline/weights/
+!runs/baseline/weights/best.pt
+
+# Everything under runs/ is generated locally. Existing tracked files remain
+# tracked, but new checkpoints, graphs, previews, videos, reports, sweep
+# variants and copied datasets will not be added accidentally.
+runs/**
+!runs/baseline/
+!runs/baseline/weights/
+!runs/baseline/weights/best.pt
+
+# Explicitly document common generated output names for readability.
+runs/**/last.pt
+runs/**/variants/
+runs/**/previews/
+runs/**/images/
+runs/**/labels/
+runs/**/*.png
+runs/**/*.jpg
+runs/**/*.jpeg
+runs/**/*.mp4
+runs/**/*.mov
+runs/**/*.avi
+runs/**/*.pdf
+
+# Streamlit local state
+.streamlit/

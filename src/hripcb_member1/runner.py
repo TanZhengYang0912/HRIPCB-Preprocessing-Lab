@@ -1,10 +1,11 @@
-"""Batch orchestration for Member 1 image comparisons."""
+"""Batch generation and frozen-model evaluation for Member 1."""
 
 from __future__ import annotations
 
 import csv
 import json
 import platform
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -13,39 +14,38 @@ import cv2
 import numpy as np
 import yaml
 
-from .degradation import add_luminance_gaussian_noise, reduce_luminance_contrast
+from .evaluation import evaluate_variants
 from .filters import apply_bbhe, apply_gaussian_filter
-from .metrics import calculate_psnr, calculate_ssim, derive_variant_seed, variant_name
+from .metrics import calculate_psnr, calculate_ssim
 from .report import build_comparison_grid, write_comparison_html
+
+VARIANTS = ("original", "gaussian", "bbhe", "gaussian_bbhe")
 
 
 def load_member1_config(path: Path) -> dict:
-    """Load and validate the Member 1 YAML configuration."""
+    """Load and validate the direct-from-original Member 1 configuration."""
 
-    config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    config = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     required = {
         "split",
-        "seed",
-        "noise_sigmas",
-        "contrast_alphas",
-        "visual_noise_sigma",
-        "visual_contrast_alpha",
+        "checkpoint",
+        "data_config",
+        "imgsz",
+        "conf",
+        "iou",
+        "device",
+        "workers",
         "gaussian_kernel_size",
         "gaussian_sigma_x",
+        "bbhe_strength",
         "jpeg_quality",
     }
     missing = sorted(required.difference(config))
     if missing:
         raise ValueError(f"Member 1 config missing keys: {', '.join(missing)}")
+    if tuple(config.get("variants", VARIANTS)) != VARIANTS:
+        raise ValueError(f"Member 1 variants must be exactly: {', '.join(VARIANTS)}")
     return config
-
-
-def _write_jpeg(path: Path, image: np.ndarray, quality: int) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not cv2.imwrite(
-        str(path), image, [cv2.IMWRITE_JPEG_QUALITY, int(quality)]
-    ):
-        raise OSError(f"Could not write image: {path}")
 
 
 def _source_images(dataset_root: Path, split: str) -> list[Path]:
@@ -62,6 +62,15 @@ def _source_images(dataset_root: Path, split: str) -> list[Path]:
     return paths
 
 
+def _write_image(path: Path, image: np.ndarray, quality: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    params = []
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        params = [cv2.IMWRITE_JPEG_QUALITY, int(quality)]
+    if not cv2.imwrite(str(path), image, params):
+        raise OSError(f"Could not write image: {path}")
+
+
 def _save_variant(
     *,
     output_root: Path,
@@ -70,20 +79,20 @@ def _save_variant(
     image: np.ndarray,
     clean: np.ndarray,
     quality: int,
-    noise_sigma: float | None,
-    contrast_alpha: float | None,
     metric_rows: list[dict[str, object]],
     timing_rows: list[dict[str, object]],
     started: float,
 ) -> None:
     output_path = output_root / "images" / variant / source.name
-    _write_jpeg(output_path, image, quality)
+    if variant == "original":
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, output_path)
+    else:
+        _write_image(output_path, image, quality)
     metric_rows.append(
         {
             "source": source.name,
             "variant": variant,
-            "noise_sigma": "" if noise_sigma is None else noise_sigma,
-            "contrast_alpha": "" if contrast_alpha is None else contrast_alpha,
             "psnr": calculate_psnr(clean, image),
             "ssim": calculate_ssim(clean, image),
             "path": str(output_path.relative_to(output_root)),
@@ -98,6 +107,31 @@ def _save_variant(
     )
 
 
+def _copy_label(dataset_root: Path, split: str, source: Path, output_root: Path, variant: str) -> None:
+    label = dataset_root / split / "labels" / f"{source.stem}.txt"
+    if not label.is_file():
+        raise FileNotFoundError(f"Label file not found: {label}")
+    destination = output_root / "labels" / variant / label.name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(label, destination)
+
+
+def _variant_data_yaml(output_root: Path, variant: str, data_config: Path) -> Path:
+    source_config = yaml.safe_load(Path(data_config).read_text(encoding="utf-8")) or {}
+    payload = {
+        "path": str(output_root.resolve()),
+        "train": f"images/{variant}",
+        "val": f"images/{variant}",
+        "test": f"images/{variant}",
+        "nc": source_config.get("nc", 6),
+        "names": source_config.get("names", {}),
+    }
+    path = output_root / "model_eval" / variant / "data.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    return path
+
+
 def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -110,219 +144,144 @@ def run_comparison(
     output_root: Path,
     sample_name: str | None,
     config: dict,
+    *,
+    checkpoint: Path | None = None,
+    evaluate_model: bool = True,
 ) -> Path:
-    """Process every image in the configured split and write comparison assets."""
+    """Generate four direct-from-original variants and optionally evaluate them."""
 
     dataset_root = Path(dataset_root).resolve()
     output_root = Path(output_root).resolve()
     source_paths = _source_images(dataset_root, config["split"])
     selected_sample = sample_name or source_paths[0].name
-    if selected_sample not in {path.name for path in source_paths}:
+    source_names = {path.name for path in source_paths}
+    if selected_sample not in source_names:
         raise FileNotFoundError(f"Sample image not found in split: {selected_sample}")
 
     output_root.mkdir(parents=True, exist_ok=True)
     (output_root / "comparison").mkdir(exist_ok=True)
     metric_rows: list[dict[str, object]] = []
     timing_rows: list[dict[str, object]] = []
-    variants: list[str] = []
+    representative_images: dict[str, np.ndarray] = {}
     quality = int(config["jpeg_quality"])
     kernel_size = int(config["gaussian_kernel_size"])
     sigma_x = float(config["gaussian_sigma_x"])
-    global_seed = int(config["seed"])
-    noise_sigmas = [float(value) for value in config["noise_sigmas"]]
-    contrast_alphas = [float(value) for value in config["contrast_alphas"]]
-    representative_images: dict[str, np.ndarray] = {}
+    bbhe_strength = float(config["bbhe_strength"])
 
     for source in source_paths:
         clean = cv2.imread(str(source), cv2.IMREAD_COLOR)
         if clean is None:
             raise OSError(f"Could not read image: {source}")
-        source_key = source.relative_to(dataset_root).as_posix()
 
         started = time.perf_counter()
-        original_variant = "original"
         _save_variant(
             output_root=output_root,
             source=source,
-            variant=original_variant,
+            variant="original",
             image=clean,
             clean=clean,
             quality=quality,
-            noise_sigma=None,
-            contrast_alpha=None,
             metric_rows=metric_rows,
             timing_rows=timing_rows,
             started=started,
         )
-        if source.name == selected_sample:
-            representative_images["Original"] = clean
-        variants.append(original_variant) if original_variant not in variants else None
-
-        for sigma in noise_sigmas:
-            sigma_label = variant_name("sigma", sigma)
-            noisy_variant = f"noisy_{sigma_label}"
-            noisy_started = time.perf_counter()
-            noisy = add_luminance_gaussian_noise(
-                clean,
-                sigma=sigma,
-                seed=derive_variant_seed(global_seed, source_key, noisy_variant),
-            )
-            _save_variant(
-                output_root=output_root,
-                source=source,
-                variant=noisy_variant,
-                image=noisy,
-                clean=clean,
-                quality=quality,
-                noise_sigma=sigma,
-                contrast_alpha=None,
-                metric_rows=metric_rows,
-                timing_rows=timing_rows,
-                started=noisy_started,
-            )
-            if source.name == selected_sample and sigma == float(config["visual_noise_sigma"]):
-                representative_images["Noisy"] = noisy
-            gaussian_variant = f"gaussian_{sigma_label}"
-            gaussian_started = time.perf_counter()
-            gaussian = apply_gaussian_filter(noisy, kernel_size=kernel_size, sigma_x=sigma_x)
-            _save_variant(
-                output_root=output_root,
-                source=source,
-                variant=gaussian_variant,
-                image=gaussian,
-                clean=clean,
-                quality=quality,
-                noise_sigma=sigma,
-                contrast_alpha=None,
-                metric_rows=metric_rows,
-                timing_rows=timing_rows,
-                started=gaussian_started,
-            )
-            if source.name == selected_sample and sigma == float(config["visual_noise_sigma"]):
-                representative_images["Gaussian Filtering"] = gaussian
-            variants.extend(name for name in (noisy_variant, gaussian_variant) if name not in variants)
-
-        for alpha in contrast_alphas:
-            alpha_label = variant_name("alpha", alpha)
-            low_variant = f"low_contrast_{alpha_label}"
-            low_started = time.perf_counter()
-            low_contrast = reduce_luminance_contrast(clean, alpha=alpha)
-            _save_variant(
-                output_root=output_root,
-                source=source,
-                variant=low_variant,
-                image=low_contrast,
-                clean=clean,
-                quality=quality,
-                noise_sigma=None,
-                contrast_alpha=alpha,
-                metric_rows=metric_rows,
-                timing_rows=timing_rows,
-                started=low_started,
-            )
-            if source.name == selected_sample and alpha == float(config["visual_contrast_alpha"]):
-                representative_images["Low Contrast"] = low_contrast
-            bbhe_variant = f"bbhe_{alpha_label}"
-            bbhe_started = time.perf_counter()
-            bbhe = apply_bbhe(low_contrast)
-            _save_variant(
-                output_root=output_root,
-                source=source,
-                variant=bbhe_variant,
-                image=bbhe,
-                clean=clean,
-                quality=quality,
-                noise_sigma=None,
-                contrast_alpha=alpha,
-                metric_rows=metric_rows,
-                timing_rows=timing_rows,
-                started=bbhe_started,
-            )
-            if source.name == selected_sample and alpha == float(config["visual_contrast_alpha"]):
-                representative_images["BBHE"] = bbhe
-            variants.extend(name for name in (low_variant, bbhe_variant) if name not in variants)
-
-        combined_noise = float(config["visual_noise_sigma"])
-        combined_alpha = float(config["visual_contrast_alpha"])
-        combined_label = f"sigma{int(combined_noise)}_{variant_name('alpha', combined_alpha)}"
-        combined_noisy_variant = f"combined_noisy_{combined_label}"
-        combined_started = time.perf_counter()
-        combined_noisy = reduce_luminance_contrast(
-            add_luminance_gaussian_noise(
-                clean,
-                sigma=combined_noise,
-                seed=derive_variant_seed(global_seed, source_key, combined_noisy_variant),
-            ),
-            alpha=combined_alpha,
-        )
+        gaussian_started = time.perf_counter()
+        gaussian = apply_gaussian_filter(clean, kernel_size=kernel_size, sigma_x=sigma_x)
         _save_variant(
             output_root=output_root,
             source=source,
-            variant=combined_noisy_variant,
-            image=combined_noisy,
+            variant="gaussian",
+            image=gaussian,
             clean=clean,
             quality=quality,
-            noise_sigma=combined_noise,
-            contrast_alpha=combined_alpha,
+            metric_rows=metric_rows,
+            timing_rows=timing_rows,
+            started=gaussian_started,
+        )
+        bbhe_started = time.perf_counter()
+        bbhe = apply_bbhe(clean, strength=bbhe_strength)
+        _save_variant(
+            output_root=output_root,
+            source=source,
+            variant="bbhe",
+            image=bbhe,
+            clean=clean,
+            quality=quality,
+            metric_rows=metric_rows,
+            timing_rows=timing_rows,
+            started=bbhe_started,
+        )
+        combined_started = time.perf_counter()
+        combined = apply_bbhe(gaussian, strength=bbhe_strength)
+        _save_variant(
+            output_root=output_root,
+            source=source,
+            variant="gaussian_bbhe",
+            image=combined,
+            clean=clean,
+            quality=quality,
             metric_rows=metric_rows,
             timing_rows=timing_rows,
             started=combined_started,
         )
+
         if source.name == selected_sample:
-            representative_images["Noisy + Low Contrast"] = combined_noisy
-        combined_result_variant = f"combined_gaussian_bbhe_{combined_label}"
-        combined_result_started = time.perf_counter()
-        combined_result = apply_bbhe(
-            apply_gaussian_filter(combined_noisy, kernel_size=kernel_size, sigma_x=sigma_x)
-        )
-        _save_variant(
-            output_root=output_root,
-            source=source,
-            variant=combined_result_variant,
-            image=combined_result,
-            clean=clean,
-            quality=quality,
-            noise_sigma=combined_noise,
-            contrast_alpha=combined_alpha,
-            metric_rows=metric_rows,
-            timing_rows=timing_rows,
-            started=combined_result_started,
-        )
-        if source.name == selected_sample:
-            representative_images["Gaussian + BBHE"] = combined_result
-        variants.extend(
-            name
-            for name in (combined_noisy_variant, combined_result_variant)
-            if name not in variants
-        )
+            representative_images = {
+                "Original": clean,
+                "Gaussian Filtering": gaussian,
+                "BBHE": bbhe,
+                "Gaussian + BBHE": combined,
+            }
+
+        if evaluate_model:
+            for variant in VARIANTS:
+                _copy_label(dataset_root, config["split"], source, output_root, variant)
 
     _write_csv(
         output_root / "image_metrics.csv",
         metric_rows,
-        ["source", "variant", "noise_sigma", "contrast_alpha", "psnr", "ssim", "path"],
+        ["source", "variant", "psnr", "ssim", "path"],
     )
+    _write_csv(
+        output_root / "processing_times.csv",
+        timing_rows,
+        ["source", "variant", "milliseconds"],
+    )
+
+    model_metrics: list[dict[str, object]] = []
+    checkpoint_value = checkpoint or config.get("checkpoint")
+    checkpoint_path = Path(checkpoint_value).resolve() if checkpoint_value else None
+    variant_data: dict[str, Path] = {}
+    if evaluate_model:
+        data_config = Path(config["data_config"]).resolve()
+        if not data_config.is_file():
+            raise FileNotFoundError(f"Dataset YAML not found: {data_config}")
+        for variant in VARIANTS:
+            variant_data[variant] = _variant_data_yaml(output_root, variant, data_config)
+        model_metrics = evaluate_variants(
+            checkpoint=checkpoint_path,
+            variant_data=variant_data,
+            output_root=output_root,
+            split=config["split"],
+            imgsz=int(config["imgsz"]),
+            conf=float(config["conf"]),
+            iou=float(config["iou"]),
+            device=str(config["device"]),
+            workers=int(config["workers"]),
+        )
+
     comparison_dir = output_root / "comparison"
-    grid_order = (
-        "Original",
-        "Noisy",
-        "Gaussian Filtering",
-        "Low Contrast",
-        "BBHE",
-        "Gaussian + BBHE",
-    )
-    grid_images = {name: representative_images[name] for name in grid_order}
-    build_comparison_grid(grid_images, comparison_dir / "comparison_grid.jpg")
+    build_comparison_grid(representative_images, comparison_dir / "comparison_grid.jpg")
     panel_names = [
-        ("Original", "original", "Clean source image."),
-        ("Noisy", f"noisy_sigma{int(config['visual_noise_sigma'])}", "Controlled Gaussian noise input."),
-        ("Gaussian Filtering", f"gaussian_sigma{int(config['visual_noise_sigma'])}", "Gaussian blur after noise injection."),
-        ("Low Contrast", f"low_contrast_{variant_name('alpha', float(config['visual_contrast_alpha']))}", "Contrast-reduced input."),
-        ("BBHE", f"bbhe_{variant_name('alpha', float(config['visual_contrast_alpha']))}", "Brightness-preserving bi-histogram equalization."),
-        ("Gaussian + BBHE", f"combined_gaussian_bbhe_sigma{int(config['visual_noise_sigma'])}_{variant_name('alpha', float(config['visual_contrast_alpha']))}", "Denoising followed by contrast enhancement."),
+        ("Original", "original", "Original source image; baseline input."),
+        ("Gaussian Filtering", "gaussian", "Gaussian Filtering applied directly to the original image."),
+        ("BBHE", "bbhe", "Brightness-preserving bi-histogram equalization applied directly to the original image."),
+        ("Gaussian + BBHE", "gaussian_bbhe", "Gaussian Filtering followed by BBHE."),
     ]
     panels = [
         {
             "label": label,
+            "variant": variant,
             "src": f"../images/{variant}/{selected_sample}",
             "description": description,
         }
@@ -330,25 +289,27 @@ def run_comparison(
     ]
     comparison_context = {
         "source": selected_sample,
-        "parameters": f"Gaussian noise sigma={int(config['visual_noise_sigma'])}; contrast alpha={float(config['visual_contrast_alpha']):.2f}; Gaussian kernel={kernel_size}x{kernel_size}; sigmaX={sigma_x}",
+        "parameters": (
+            f"Gaussian kernel={kernel_size}x{kernel_size}; sigmaX={sigma_x}; "
+            f"BBHE strength={bbhe_strength}; "
+            f"fixed checkpoint={checkpoint_path.name if checkpoint_path else 'not evaluated'}"
+        ),
         "panels": panels,
+        "model_metrics": model_metrics,
     }
     write_comparison_html(comparison_dir, comparison_context)
     (comparison_dir / "representative_manifest.json").write_text(
         json.dumps(comparison_context, indent=2), encoding="utf-8"
     )
-    _write_csv(
-        output_root / "processing_times.csv",
-        timing_rows,
-        ["source", "variant", "milliseconds"],
-    )
     manifest = {
         "source_count": len(source_paths),
         "split": config["split"],
         "selected_sample": selected_sample,
-        "variants": variants,
+        "variants": list(VARIANTS),
         "config": config,
-        "uses_shared_checkpoint": False,
+        "uses_shared_checkpoint": bool(evaluate_model),
+        "checkpoint": str(checkpoint_path) if evaluate_model and checkpoint_path else None,
+        "model_metrics": model_metrics,
         "output_root": str(output_root),
         "software": {
             "python": sys.version.split()[0],

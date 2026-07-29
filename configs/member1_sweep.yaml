@@ -1,0 +1,24 @@
+module: member1
+dataset: HRIPCB_UPDATE
+split: test
+checkpoint: runs/baseline/weights/best.pt
+data_config: configs/hripcb_local.yaml
+sample: 01_missing_hole_06.jpg
+imgsz: 1024
+conf: 0.25
+iou: 0.7
+device: auto
+workers: 0
+jpeg_quality: 95
+primary_metric: map50_95
+gaussian_presets:
+  - id: g05_s10
+    kernel_size: 5
+    sigma_x: 1.0
+  - id: g07_s15
+    kernel_size: 7
+    sigma_x: 1.5
+  - id: g09_s20
+    kernel_size: 9
+    sigma_x: 2.0
+bbhe_strengths: [0.25, 0.5, 0.7, 1.0]

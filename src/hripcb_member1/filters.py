@@ -5,7 +5,17 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from .degradation import _to_ycrcb, _validate_bgr_uint8
+
+def _validate_bgr_uint8(image: np.ndarray) -> None:
+    if not isinstance(image, np.ndarray) or image.dtype != np.uint8:
+        raise ValueError("image must be a uint8 NumPy array")
+    if image.ndim != 3 or image.shape[2] != 3:
+        raise ValueError("image must have three BGR channels")
+
+
+def _to_ycrcb(image: np.ndarray) -> np.ndarray:
+    _validate_bgr_uint8(image)
+    return cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
 
 
 def apply_gaussian_filter(
@@ -43,8 +53,14 @@ def _equalize_range(values: np.ndarray, low: int, high: int) -> np.ndarray:
     return lut[values - low]
 
 
-def apply_bbhe(image: np.ndarray) -> np.ndarray:
-    """Apply brightness-preserving bi-histogram equalization to luminance."""
+def apply_bbhe(image: np.ndarray, strength: float = 1.0) -> np.ndarray:
+    """Apply weighted brightness-preserving bi-histogram equalization."""
+
+    if not 0.0 <= strength <= 1.0:
+        raise ValueError("strength must be between 0 and 1")
+    _validate_bgr_uint8(image)
+    if strength == 0.0:
+        return image.copy()
 
     ycrcb = _to_ycrcb(image)
     luminance = ycrcb[..., 0]
@@ -59,6 +75,10 @@ def apply_bbhe(image: np.ndarray) -> np.ndarray:
     output[upper_mask] = _equalize_range(
         luminance[upper_mask], mean_value + 1, 255
     )
+
+    if strength < 1.0:
+        blended = (1.0 - strength) * luminance.astype(np.float32) + strength * output
+        output = np.clip(np.rint(blended), 0, 255).astype(np.uint8)
 
     ycrcb[..., 0] = output
     return cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)

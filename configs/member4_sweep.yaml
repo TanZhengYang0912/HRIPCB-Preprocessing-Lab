@@ -1,0 +1,42 @@
+module: member4
+dataset: HRIPCB_UPDATE
+split: val
+checkpoint: runs/baseline/weights/best.pt
+data_config: configs/hripcb_local.yaml
+imgsz: 1024
+conf: 0.25
+iou: 0.7
+device: auto
+workers: 0
+jpeg_quality: 95
+image_metrics_max_side: 256
+nlm_processing_max_side: 768
+msr_processing_max_side: 768
+primary_metric: map50_95
+model_id: baseline
+model_label: Baseline YOLO
+training_preprocessing: original
+evaluation_type: ablation
+nlm_presets:
+  - id: n03
+    h: 3
+    h_color: 3
+    template_window: 7
+    search_window: 21
+  - id: n07
+    h: 7
+    h_color: 7
+    template_window: 7
+    search_window: 21
+  - id: n10
+    h: 10
+    h_color: 10
+    template_window: 7
+    search_window: 21
+msr_presets:
+  - id: s152502
+    sigmas: [15, 80, 250]
+  - id: s1550150
+    sigmas: [15, 50, 150]
+  - id: s2080160
+    sigmas: [20, 80, 160]

@@ -1,0 +1,28 @@
+module: member2
+dataset: HRIPCB_UPDATE
+split: val
+checkpoint: runs/baseline/weights/best.pt
+data_config: configs/hripcb_local.yaml
+imgsz: 1024
+conf: 0.25
+iou: 0.7
+device: auto
+workers: 0
+jpeg_quality: 95
+image_metrics_max_side: 256
+primary_metric: map50_95
+model_id: baseline
+model_label: Baseline YOLO
+training_preprocessing: original
+evaluation_type: ablation
+median_kernel_sizes: [3, 5, 7]
+clahe_presets:
+  - id: c15
+    clip_limit: 1.5
+    tile_grid_size: [8, 8]
+  - id: c20
+    clip_limit: 2.0
+    tile_grid_size: [8, 8]
+  - id: c30
+    clip_limit: 3.0
+    tile_grid_size: [8, 8]

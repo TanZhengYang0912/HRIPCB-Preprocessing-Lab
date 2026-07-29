@@ -2,10 +2,6 @@ import cv2
 import numpy as np
 import pytest
 
-from hripcb_member1.degradation import (
-    add_luminance_gaussian_noise,
-    reduce_luminance_contrast,
-)
 from hripcb_member1.filters import apply_bbhe, apply_gaussian_filter
 
 
@@ -17,21 +13,6 @@ def sample_image():
     image[..., 2] = 180
     cv2.rectangle(image, (8, 8), (31, 23), (220, 220, 220), -1)
     return image
-
-
-def test_noise_is_deterministic_and_bounded(sample_image):
-    first = add_luminance_gaussian_noise(sample_image, sigma=30, seed=42)
-    second = add_luminance_gaussian_noise(sample_image, sigma=30, seed=42)
-    assert np.array_equal(first, second)
-    assert first.dtype == np.uint8
-    assert int(first.min()) >= 0
-    assert int(first.max()) <= 255
-
-
-def test_contrast_reduction_returns_same_shape_and_dtype(sample_image):
-    result = reduce_luminance_contrast(sample_image, alpha=0.5)
-    assert result.shape == sample_image.shape
-    assert result.dtype == np.uint8
 
 
 def test_gaussian_filter_returns_same_shape_and_dtype(sample_image):
@@ -48,10 +29,19 @@ def test_bbhe_handles_constant_image_without_invalid_values():
     assert np.isfinite(result).all()
 
 
+def test_bbhe_strength_zero_preserves_input_and_one_is_full_bbhe(sample_image):
+    original = apply_bbhe(sample_image, strength=0.0)
+    full = apply_bbhe(sample_image, strength=1.0)
+    half = apply_bbhe(sample_image, strength=0.5)
+
+    assert np.array_equal(original, sample_image)
+    assert not np.array_equal(full, sample_image)
+    assert not np.array_equal(half, sample_image)
+    assert not np.array_equal(half, full)
+
+
 def test_processing_rejects_invalid_inputs(sample_image):
-    with pytest.raises(ValueError, match="sigma"):
-        add_luminance_gaussian_noise(sample_image, sigma=0, seed=42)
-    with pytest.raises(ValueError, match="alpha"):
-        reduce_luminance_contrast(sample_image, alpha=0)
     with pytest.raises(ValueError, match="odd"):
         apply_gaussian_filter(sample_image, kernel_size=4)
+    with pytest.raises(ValueError, match="strength"):
+        apply_bbhe(sample_image, strength=1.1)

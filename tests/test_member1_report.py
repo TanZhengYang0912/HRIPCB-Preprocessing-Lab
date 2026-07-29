@@ -8,14 +8,46 @@ def test_report_contains_all_required_panel_labels(tmp_path):
         tmp_path,
         {
             "source": "sample.jpg",
-            "parameters": "sigma=30, alpha=0.50",
+            "parameters": "kernel=5x5, sigmaX=1.0",
             "panels": [
                 {"label": "Original", "src": "original.jpg"},
-                {"label": "Noisy", "src": "noisy.jpg"},
                 {"label": "Gaussian Filtering", "src": "gaussian.jpg"},
-                {"label": "Low Contrast", "src": "low.jpg"},
                 {"label": "BBHE", "src": "bbhe.jpg"},
                 {"label": "Gaussian + BBHE", "src": "combined.jpg"},
+            ],
+            "model_metrics": [
+                {
+                    "variant": "original",
+                    "precision": 0.95,
+                    "recall": 0.92,
+                    "map50": 0.91,
+                    "map50_95": 0.49,
+                    "f1": 0.93,
+                },
+                {
+                    "variant": "gaussian",
+                    "precision": 0.96,
+                    "recall": 0.93,
+                    "map50": 0.92,
+                    "map50_95": 0.50,
+                    "f1": 0.94,
+                },
+                {
+                    "variant": "bbhe",
+                    "precision": 0.79,
+                    "recall": 0.58,
+                    "map50": 0.54,
+                    "map50_95": 0.27,
+                    "f1": 0.67,
+                },
+                {
+                    "variant": "gaussian_bbhe",
+                    "precision": 0.90,
+                    "recall": 0.64,
+                    "map50": 0.70,
+                    "map50_95": 0.36,
+                    "f1": 0.75,
+                },
             ],
         },
     )
@@ -23,6 +55,13 @@ def test_report_contains_all_required_panel_labels(tmp_path):
     assert "Gaussian Filtering" in html
     assert "BBHE" in html
     assert "Gaussian + BBHE" in html
+    assert "mAP50" in html
+    assert "0.9100" in html
+    assert html.count("YOLO scores") == 4
+    assert "0.9600" in html
+    assert "0.7000" in html
+    assert "Noisy" not in html
+    assert "Low Contrast" not in html
     assert "sample.jpg" in html
 
 
