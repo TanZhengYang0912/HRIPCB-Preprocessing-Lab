@@ -89,6 +89,13 @@ def _metric_value(record: dict, key: str) -> float:
         return 0.0
 
 
+def _resolve_preview_path(results_path: Path, preview: str | None) -> Path | None:
+    if not preview:
+        return None
+    candidate = (results_path.parent / preview).resolve()
+    return candidate if candidate.is_file() else None
+
+
 def _render_report_tools(st, records: list[dict]) -> None:
     st.subheader("Report & export")
     st.caption("Download the experiment evidence for your report or presentation.")
@@ -576,13 +583,16 @@ def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None
     selected = next(record for record in filtered if record["id"] == selected_id)
     _render_active_experiment(st, selected, heading="Selected experiment")
     left, right = st.columns([1.1, 1])
-    preview_path = (results_path.parent / selected.get("preview", "")).resolve()
+    preview_path = _resolve_preview_path(results_path, selected.get("preview"))
     with left:
         st.subheader(selected["id"])
-        if preview_path.is_file():
+        if preview_path is not None:
             st.image(str(preview_path), caption=f"{selected.get('module')} / {selected.get('technique')}", width="stretch")
         else:
-            st.info(f"Preview not found: {preview_path}")
+            st.info(
+                "Preview image is not included in this deployment. "
+                "Metrics and parameters are still available."
+            )
     with right:
         st.subheader("Parameters and metrics")
         st.json({
