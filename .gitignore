@@ -67,6 +67,8 @@ runs/**
 !runs/baseline/
 !runs/baseline/weights/
 !runs/baseline/weights/best.pt
+!runs/project_validation_comparison/
+!runs/project_validation_comparison/results.json
 
 # Explicitly document common generated output names for readability.
 runs/**/last.pt
