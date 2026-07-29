@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the official Original/Median/Final test comparison records."""
+"""Create the official Original/Median/retrained-candidate test comparison records."""
 
 from __future__ import annotations
 
@@ -14,10 +14,9 @@ def _f1(metrics: dict) -> float:
     return 2 * precision * recall / (precision + recall) if precision + recall else 0.0
 
 
-def build(output: Path, baseline_original_metrics: Path, baseline_median_results: Path, final_results: Path) -> Path:
+def build(output: Path, baseline_original_metrics: Path, baseline_median_results: Path, candidate_results: Path | None = None) -> Path:
     original = json.loads(Path(baseline_original_metrics).read_text(encoding="utf-8"))
     baseline_median = json.loads(Path(baseline_median_results).read_text(encoding="utf-8"))[0]
-    final = json.loads(Path(final_results).read_text(encoding="utf-8"))[0]
     original_metrics = {
         "precision": float(original["metrics/precision(B)"]),
         "recall": float(original["metrics/recall(B)"]),
@@ -41,7 +40,9 @@ def build(output: Path, baseline_original_metrics: Path, baseline_median_results
     }
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
-    records = [original_record, baseline_median, final]
+    records = [original_record, baseline_median]
+    if candidate_results is not None:
+        records.append(json.loads(Path(candidate_results).read_text(encoding="utf-8"))[0])
     (output / "results.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
     return output / "results.json"
 
@@ -51,9 +52,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=Path("runs/official_test_comparison"))
     parser.add_argument("--baseline-original", type=Path, default=Path("runs/evaluation/test/metrics.json"))
     parser.add_argument("--baseline-median", type=Path, default=Path("runs/baseline_median_test/results.json"))
-    parser.add_argument("--final", type=Path, default=Path("runs/final_model/evaluation/results.json"))
+    parser.add_argument("--candidate", type=Path, default=None)
     args = parser.parse_args()
-    print(f"official test records: {build(args.output, args.baseline_original, args.baseline_median, args.final)}")
+    print(f"official test records: {build(args.output, args.baseline_original, args.baseline_median, args.candidate)}")
     return 0
 
 

@@ -35,7 +35,7 @@ def test_dashboard_renders_dynamic_module_parameters_and_metrics(tmp_path):
     assert "mAP50-95" in html
     assert "member2_bilateral.jpg" in html
     assert "filterRows" in html
-    assert "The primary ranking metric is <strong>mAP50-95</strong>" in html
+    assert "The primary metric is <strong>mAP50-95</strong>" in html
     assert "color-scheme: light" in html
     assert "--canvas: #f4f7fb" in html
     assert "prefers-reduced-transparency" in html

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate the trained final model with the shared project protocol."""
+"""Evaluate a retrained candidate with the shared project protocol."""
 
 from __future__ import annotations
 
@@ -83,26 +83,26 @@ def evaluate(args: argparse.Namespace) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", type=Path, default=Path("runs/final_model/weights/best.pt"))
-    parser.add_argument("--data", type=Path, default=Path("runs/final_preprocessed_dataset/data.yaml"))
-    parser.add_argument("--output", type=Path, default=Path("runs/final_model/evaluation"))
+    parser.add_argument("--checkpoint", type=Path, default=Path("runs/retrained_median_candidate/weights/best.pt"))
+    parser.add_argument("--data", type=Path, default=Path("runs/retrained_median_dataset/data.yaml"))
+    parser.add_argument("--output", type=Path, default=Path("runs/retrained_median_candidate/evaluation"))
     parser.add_argument("--split", default="test")
     parser.add_argument("--imgsz", type=int, default=1024)
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--iou", type=float, default=0.70)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--workers", type=int, default=0)
-    parser.add_argument("--model-id", default="final")
-    parser.add_argument("--model-label", default="Final YOLO")
+    parser.add_argument("--model-id", default="retrained_median_candidate")
+    parser.add_argument("--model-label", default="Retrained Median Candidate")
     parser.add_argument("--module", default="member2")
     parser.add_argument("--technique", default="median")
     parser.add_argument("--training-preprocessing", default="median_k5")
     parser.add_argument("--evaluation-preprocessing", default="median_k5")
-    parser.add_argument("--evaluation-type", default="official_final")
+    parser.add_argument("--evaluation-type", default="retrained_candidate")
     parser.add_argument("--median-kernel-size", type=int, default=5)
     parser.add_argument("--record-id", default="")
     args = parser.parse_args()
-    print(f"final evaluation: {evaluate(args)}")
+    print(f"retrained candidate evaluation: {evaluate(args)}")
     return 0
 
 

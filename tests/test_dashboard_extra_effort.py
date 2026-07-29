@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import zipfile
 
 import cv2
@@ -13,8 +14,11 @@ import pytest
 
 from hripcb_dashboard.batch import extract_image_entries
 from hripcb_dashboard import reporting
-from hripcb_dashboard.reporting import build_report_pdf, format_parameters, record_metric_summary
+from hripcb_dashboard.reporting import build_report_pdf, format_parameters, record_metric_summary, report_chart_payload
+from hripcb_dashboard.analysis import build_analysis_payload
 from hripcb_dashboard.video import process_video
+sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
+from build_official_test_comparison import build as build_official_test_comparison
 
 
 def _zip_bytes(entries: dict[str, bytes]) -> bytes:
@@ -68,6 +72,97 @@ def test_record_metric_summary_excludes_baseline_control_from_module_count():
     assert summary["baseline_control_count"] == 1
 
 
+def test_record_metric_summary_uses_combined_runs_for_best_run():
+    records = [
+        {"id": "noise_only", "module": "member1", "technique": "gaussian", "metrics": {"map50_95": 0.90}},
+        {"id": "combined", "module": "member1", "technique": "gaussian_bbhe", "metrics": {"map50_95": 0.80}},
+    ]
+
+    summary = record_metric_summary(records)
+
+    assert summary["best"]["id"] == "combined"
+    assert summary["combined_count"] == 1
+
+
+def test_record_metric_summary_exposes_consistent_display_and_reference_counts():
+    records = [
+        {
+            "id": "original",
+            "model_id": "baseline",
+            "module": f"member{i}",
+            "technique": "original",
+            "split": "val",
+            "metrics": {"map50_95": 0.5},
+        }
+        for i in range(1, 5)
+    ]
+    records.extend([
+        {
+            "id": f"combined_{i}",
+            "model_id": "baseline",
+            "module": f"member{i}",
+            "technique": (
+                "gaussian_bbhe" if i == 1 else
+                "median_clahe" if i == 2 else
+                "bilateral_agcwd" if i == 3 else "nlm_msr"
+            ),
+            "split": "val",
+            "metrics": {"map50_95": 0.51},
+        }
+        for i in range(1, 5)
+    ])
+
+    summary = record_metric_summary(records)
+
+    assert summary["count"] == 8
+    assert summary["display_count"] == 5
+    assert summary["combined_count"] == 4
+    assert summary["reference_count"] == 1
+
+
+def test_analysis_payload_contains_original_and_four_combined_winners():
+    records = [
+        {
+            "id": "original",
+            "model_id": "baseline",
+            "module": "member1",
+            "technique": "original",
+            "split": "val",
+            "evaluation_type": "ablation",
+            "metrics": {"map50_95": 0.5151, "map50": 0.942, "precision": 0.9719, "recall": 0.944, "f1": 0.9577},
+        },
+        {
+            "id": "member1_combined",
+            "model_id": "baseline",
+            "module": "member1",
+            "technique": "gaussian_bbhe",
+            "split": "val",
+            "evaluation_type": "ablation",
+            "parameters": {"bbhe_strength": 0.25},
+            "metrics": {"map50_95": 0.51, "map50": 0.92, "precision": 0.96, "recall": 0.91, "f1": 0.94},
+        },
+        {
+            "id": "member1_combined_lower",
+            "model_id": "baseline",
+            "module": "member1",
+            "technique": "gaussian_bbhe",
+            "split": "val",
+            "evaluation_type": "ablation",
+            "metrics": {"map50_95": 0.49},
+        },
+    ]
+
+    payload = build_analysis_payload(records)
+
+    assert [row["label"] for row in payload["original_vs_combined"]] == [
+        "Original",
+        "member1 / Gaussian + BBHE",
+    ]
+    assert payload["combined_winners"][0]["id"] == "member1_combined"
+    assert payload["combined_winners"][0]["map50_95"] == 0.51
+    assert payload["metric_comparison"][0]["technique"] == "Gaussian + BBHE"
+
+
 def test_build_report_pdf_contains_a_real_pdf_header():
     records = [{
         "id": "member2_median_k5",
@@ -83,6 +178,51 @@ def test_build_report_pdf_contains_a_real_pdf_header():
 
     assert payload.startswith(b"%PDF")
     assert len(payload) > 500
+
+
+def test_report_chart_payload_contains_report_ready_comparisons():
+    records = [{
+        "id": "original",
+        "model_id": "baseline",
+        "module": "member1",
+        "technique": "original",
+        "split": "val",
+        "evaluation_type": "ablation",
+        "metrics": {"map50_95": 0.5151},
+    }, {
+        "id": "combined",
+        "model_id": "baseline",
+        "module": "member1",
+        "technique": "gaussian_bbhe",
+        "split": "val",
+        "evaluation_type": "ablation",
+        "metrics": {"map50_95": 0.5109},
+    }]
+
+    charts = report_chart_payload(records)
+
+    assert len(charts["original_vs_combined"]) == 2
+    assert len(charts["metric_comparison"]) == 1
+    assert len(charts["stage_comparison"]) == 4
+
+
+def test_official_comparison_can_exclude_obsolete_retrained_candidate(tmp_path):
+    original_path = tmp_path / "original.json"
+    median_path = tmp_path / "median.json"
+    candidate_path = tmp_path / "candidate.json"
+    original_path.write_text(json.dumps({
+        "metrics/precision(B)": 0.95,
+        "metrics/recall(B)": 0.92,
+        "metrics/mAP50(B)": 0.92,
+        "metrics/mAP50-95(B)": 0.49,
+    }))
+    median_path.write_text(json.dumps([{"id": "median", "model_id": "baseline"}]))
+    candidate_path.write_text(json.dumps([{"id": "obsolete_candidate", "model_id": "retrained_median_candidate"}]))
+
+    output = build_official_test_comparison(tmp_path / "official", original_path, median_path, None)
+    records = json.loads(output.read_text())
+
+    assert [record["id"] for record in records] == ["baseline_original_test", "median"]
 
 
 def test_format_parameters_is_readable_for_long_parameter_sets():
@@ -124,8 +264,17 @@ def test_streamlit_exposes_extra_effort_sections_and_frozen_protocol():
         "imgsz",
         "conf",
         "iou",
+        "Best combined run",
+        'run_type_options = ["all", "combined", "reference"]',
     ):
         assert label in source
+
+
+def test_streamlit_does_not_reference_removed_retrained_model():
+    source = Path("scripts/streamlit_dashboard.py").read_text(encoding="utf-8")
+
+    assert "retrained_median_candidate" not in source
+    assert 'record.get("model_id") == "final"' not in source
 
 
 class _FakeBoxes:

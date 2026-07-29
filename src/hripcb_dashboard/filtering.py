@@ -7,6 +7,109 @@ from collections.abc import Iterable, Mapping, MutableMapping
 
 ALL = "all"
 FILTER_FIELDS = ("model", "split", "module", "technique")
+COMBINED_TECHNIQUES = frozenset({
+    "gaussian_bbhe",
+    "median_clahe",
+    "bilateral_agcwd",
+    "nlm_msr",
+})
+MEMBER_MODULES = ("member1", "member2", "member3", "member4")
+
+
+def is_shared_original_record(record: Mapping[str, object]) -> bool:
+    """Return whether a record is one of the duplicated member original controls."""
+
+    return (
+        str(record.get("model_id", "baseline")) == "baseline"
+        and str(record.get("split", "")) == "val"
+        and str(record.get("technique", "")).lower() == "original"
+        and str(record.get("module", "")) in MEMBER_MODULES
+    )
+
+
+def collapse_shared_baseline(records: Iterable[Mapping[str, object]]) -> list[dict]:
+    """Collapse duplicated member original rows into one shared baseline control."""
+
+    source = [dict(record) for record in records]
+    originals = [record for record in source if is_shared_original_record(record)]
+    if len(originals) < 2:
+        return source
+
+    control = dict(originals[0])
+    control.update({
+        "id": "original_shared_control",
+        "module": "baseline",
+        "technique": "original",
+        "evaluation_type": "baseline_control",
+        "shared_control_modules": sorted({str(record.get("module")) for record in originals}),
+        "display_label": "Original / Shared baseline control",
+    })
+    collapsed: list[dict] = []
+    inserted = False
+    for record in source:
+        if is_shared_original_record(record):
+            if not inserted:
+                collapsed.append(control)
+                inserted = True
+            continue
+        collapsed.append(record)
+    return collapsed
+
+
+def comparison_records(
+    records: Iterable[Mapping[str, object]],
+    *,
+    model: str = ALL,
+    split: str = ALL,
+    module: str = ALL,
+    technique: str = ALL,
+    search: str = "",
+    run_type: str = ALL,
+) -> list[dict]:
+    """Return display rows, adding the original baseline to combined comparisons."""
+
+    if run_type == "combined":
+        selected = filter_records(
+            records,
+            model=model,
+            split=split,
+            module=module,
+            technique=technique,
+            search=search,
+            run_type="combined",
+        )
+        selected.extend(
+            filter_records(
+                records,
+                model=model,
+                split=split,
+                module=module,
+                technique="original",
+                search=search,
+                run_type=ALL,
+            )
+        )
+    else:
+        selected = filter_records(
+            records,
+            model=model,
+            split=split,
+            module=module,
+            technique=technique,
+            search=search,
+            run_type=run_type,
+        )
+    return collapse_shared_baseline(selected) if module == ALL else selected
+
+
+def is_combined_record(record: Mapping[str, object]) -> bool:
+    """Return whether a record applies both techniques for its member module."""
+
+    if record.get("is_combined") is not None:
+        return bool(record.get("is_combined"))
+    if str(record.get("evaluation_stage", "")).lower() == "combined":
+        return True
+    return str(record.get("technique", "")).lower() in COMBINED_TECHNIQUES
 
 
 def inference_widget_keys(prefix: str) -> tuple[str, str, str]:
@@ -16,6 +119,8 @@ def inference_widget_keys(prefix: str) -> tuple[str, str, str]:
 
 
 def _value(record: Mapping[str, object], field: str) -> str:
+    if field == "run_type":
+        return "combined" if is_combined_record(record) else "reference"
     key = "model_id" if field == "model" else field
     value = record.get(key)
     return str(value) if value not in (None, "") else "unknown"
@@ -37,6 +142,7 @@ def filter_records(
     module: str = ALL,
     technique: str = ALL,
     search: str = "",
+    run_type: str = ALL,
 ) -> list[dict]:
     """Return records matching all active filters, preserving input order."""
 
@@ -45,6 +151,8 @@ def filter_records(
     filtered: list[dict] = []
     for record in records:
         if not _matches(record, selection):
+            continue
+        if run_type != ALL and _value(record, "run_type") != run_type:
             continue
         if query and query not in json.dumps(record, sort_keys=True, default=str).lower():
             continue
@@ -95,13 +203,20 @@ def normalize_selection(
     return normalized
 
 
-def reset_selection_state(state: MutableMapping[str, object], *, prefix: str) -> None:
+def reset_selection_state(
+    state: MutableMapping[str, object],
+    *,
+    prefix: str,
+    extra_fields: Iterable[str] = (),
+    defaults: Mapping[str, object] | None = None,
+) -> None:
     """Reset only filter-widget keys belonging to one UI selection group."""
 
-    for field in FILTER_FIELDS:
+    defaults = defaults or {}
+    for field in (*FILTER_FIELDS, *extra_fields):
         key = f"{prefix}{field}"
         if key in state:
-            state[key] = ALL
+            state[key] = defaults.get(field, ALL)
 
 
 def _metric_value(record: Mapping[str, object], metric: str) -> float:
@@ -122,6 +237,7 @@ def _recommendation_candidates(
         for record in records
         if _value(record, "split") == split
         and str(record.get("evaluation_type", "ablation")) == evaluation_type
+        and is_combined_record(record)
         and _metric_value(record, "map50_95") != float("-inf")
     ]
 
@@ -133,13 +249,14 @@ def best_experiment(
     evaluation_type: str = "ablation",
     metric: str = "map50_95",
 ) -> dict | None:
-    """Return the highest-scoring recommendation for the frozen comparison protocol."""
+    """Return the highest-scoring combined recommendation for the frozen protocol."""
 
     candidates = [
         record
         for record in records
         if _value(record, "split") == split
         and str(record.get("evaluation_type", "ablation")) == evaluation_type
+        and is_combined_record(record)
         and _metric_value(record, metric) != float("-inf")
     ]
     return max(candidates, key=lambda record: (_metric_value(record, metric), record.get("id", "")), default=None)

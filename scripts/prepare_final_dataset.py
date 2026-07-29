@@ -68,7 +68,7 @@ def prepare(dataset_root: Path, output_root: Path, selection_path: Path, data_co
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=Path, default=Path("HRIPCB_UPDATE"))
-    parser.add_argument("--output", type=Path, default=Path("runs/final_preprocessed_dataset"))
+    parser.add_argument("--output", type=Path, default=Path("runs/retrained_median_dataset"))
     parser.add_argument("--selection", type=Path, default=Path("runs/project_validation_comparison/selection.json"))
     parser.add_argument("--data-config", type=Path, default=Path("configs/hripcb_local.yaml"))
     args = parser.parse_args()

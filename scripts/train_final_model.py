@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train the final YOLO model with the exact shared baseline protocol."""
+"""Train a preprocessing candidate with the exact shared baseline protocol."""
 
 from __future__ import annotations
 
@@ -66,8 +66,8 @@ def train(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=Path, default=Path("runs/final_preprocessed_dataset/data.yaml"))
-    parser.add_argument("--output", type=Path, default=Path("runs/final_model"))
+    parser.add_argument("--data", type=Path, default=Path("runs/retrained_median_dataset/data.yaml"))
+    parser.add_argument("--output", type=Path, default=Path("runs/retrained_median_candidate"))
     parser.add_argument("--config", type=Path, default=Path("configs/baseline.yaml"))
     parser.add_argument("--weights", type=Path, default=Path("yolov8s.pt"), help="Same initial model used by the baseline")
     parser.add_argument("--epochs", type=int, default=None, help="Optional override; use config value 100 for the official run")

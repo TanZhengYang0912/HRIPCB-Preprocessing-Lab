@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from hripcb_dashboard.reporting import build_report_pdf
+from hripcb_dashboard.filtering import is_combined_record
 
 
 def _export_pdf(records: list[dict], output_dir: Path) -> Path:
@@ -35,7 +36,9 @@ def export_report(results_path: Path, output_dir: Path) -> Path:
                 record["id"], record.get("model_id", "baseline"), record.get("module"), record.get("technique"), record.get("split"),
                 *[record.get("metrics", {}).get(key, "") for key in keys],
             ])
-    ranked = sorted(records, key=lambda record: float(record.get("metrics", {}).get("map50_95", float("-inf"))), reverse=True)
+    combined_records = [record for record in records if is_combined_record(record)]
+    ranking_records = combined_records or records
+    ranked = sorted(ranking_records, key=lambda record: float(record.get("metrics", {}).get("map50_95", float("-inf"))), reverse=True)
     rows = []
     for record in ranked:
         metrics = record.get("metrics", {})
@@ -49,7 +52,7 @@ def export_report(results_path: Path, output_dir: Path) -> Path:
             f"<td>{float(metrics.get('recall', 0)):.4f}</td>",
         ]) + "</tr>")
     best = ranked[0] if ranked else None
-    document = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'><title>HRIPCB Preprocessing Report</title><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#172033;background:#f4f7fb;margin:0;padding:40px}}main{{max-width:1200px;margin:auto;background:white;padding:36px;border-radius:20px;box-shadow:0 15px 45px #28405c1a}}h1{{margin-top:0}}table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:10px;border-bottom:1px solid #dce5ef}}th{{background:#f4f7fb}}.best{{color:#198754;font-weight:700}}</style></head><body><main><h1>HRIPCB Preprocessing Comparison</h1><p>Generated from {len(records)} validation experiments. Primary metric: mAP50-95.</p><p class='best'>Best run: {html.escape(best['id']) if best else '—'} — {float(best['metrics'].get('map50_95', 0)):.4f}</p><table><thead><tr><th>ID</th><th>Module</th><th>Technique</th><th>mAP50-95</th><th>F1</th><th>Precision</th><th>Recall</th></tr></thead><tbody>{''.join(rows)}</tbody></table></main></body></html>"""
+    document = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'><title>HRIPCB Preprocessing Report</title><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#172033;background:#f4f7fb;margin:0;padding:40px}}main{{max-width:1200px;margin:auto;background:white;padding:36px;border-radius:20px;box-shadow:0 15px 45px #28405c1a}}h1{{margin-top:0}}table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:10px;border-bottom:1px solid #dce5ef}}th{{background:#f4f7fb}}.best{{color:#198754;font-weight:700}}</style></head><body><main><h1>HRIPCB Preprocessing Comparison</h1><p>Generated from {len(records)} total records. The primary leaderboard contains {len(ranking_records)} combined technique records. Primary metric: mAP50-95.</p><p class='best'>Best combined run: {html.escape(best['id']) if best else '—'} — {float(best['metrics'].get('map50_95', 0)):.4f}</p><table><thead><tr><th>ID</th><th>Module</th><th>Technique</th><th>mAP50-95</th><th>F1</th><th>Precision</th><th>Recall</th></tr></thead><tbody>{''.join(rows)}</tbody></table></main></body></html>"""
     report_path = output_dir / "report.html"
     report_path.write_text(document, encoding="utf-8")
     _export_pdf(records, output_dir)

@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from hripcb_dashboard.dashboard import write_dashboard_html
+from hripcb_dashboard.filtering import is_combined_record
 
 
 MODULES = ("member1", "member2", "member3", "member4")
@@ -44,9 +45,6 @@ def aggregate_results(runs_root: Path, output_root: Path) -> Path:
     if (official_test_dir / "results.json").is_file():
         sources.append((official_test_dir, "official_test"))
     else:
-        final_source_dir = runs_root / "final_model" / "evaluation"
-        if (final_source_dir / "results.json").is_file():
-            sources.append((final_source_dir, "final"))
         baseline_test_dir = runs_root / "baseline_median_test"
         if (baseline_test_dir / "results.json").is_file():
             sources.append((baseline_test_dir, "baseline_test"))
@@ -74,7 +72,9 @@ def aggregate_results(runs_root: Path, output_root: Path) -> Path:
     ranked = sorted(records, key=lambda record: float(record.get("metrics", {}).get("map50_95", float("-inf"))), reverse=True)
     selection_records = [
         record for record in records
-        if record.get("split") == "val" and record.get("evaluation_type", "ablation") == "ablation"
+        if record.get("split") == "val"
+        and record.get("evaluation_type", "ablation") == "ablation"
+        and is_combined_record(record)
     ] or records
     ranked_for_selection = sorted(selection_records, key=lambda record: float(record.get("metrics", {}).get("map50_95", float("-inf"))), reverse=True)
     by_module = {}

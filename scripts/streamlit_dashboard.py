@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from hripcb_member1.evaluation import select_device
 from hripcb_dashboard.batch import extract_image_entries
+from hripcb_dashboard.analysis import MEMBER_TECHNIQUES, build_analysis_payload, technique_label
 from hripcb_dashboard.reporting import build_report_pdf, dumps_json, record_metric_summary
 from hripcb_dashboard.video import process_video
 from hripcb_preprocessing.candidates import apply_candidate
@@ -24,8 +25,10 @@ from hripcb_dashboard.filtering import (
     FILTER_FIELDS,
     best_by_module,
     best_experiment,
+    comparison_records,
     filter_records,
     inference_widget_keys,
+    is_combined_record,
     normalize_selection,
     option_values,
     reset_selection_state,
@@ -57,8 +60,6 @@ def _label(key: str) -> str:
 
 
 def _checkpoint_for_model(model_id: str) -> Path:
-    if model_id == "final":
-        return PROJECT_ROOT / "runs/final_model/weights/best.pt"
     return PROJECT_ROOT / "runs/baseline/weights/best.pt"
 
 
@@ -146,57 +147,107 @@ def _records_to_csv(records: list[dict]) -> str:
 
 
 def _render_analysis(st, records: list[dict]) -> None:
+    import pandas as pd
+
     st.header("Analysis & findings")
-    st.caption("A report-ready overview of coverage, ranking, and measurable model differences.")
+    st.caption("A report-ready view of the original control, single-technique references, and four combined candidates.")
     summary = record_metric_summary(records)
+    payload = build_analysis_payload(records)
     cards = st.columns(4)
-    cards[0].metric("Experiment runs", summary["count"])
-    cards[1].metric("Modules", summary["module_count"])
-    cards[2].metric("Models", summary["model_count"])
+    cards[0].metric("Displayed runs", summary["display_count"])
+    cards[1].metric("Combined runs", summary["combined_count"])
+    cards[2].metric("Reference runs", summary["reference_count"])
     best = summary["best"]
-    cards[3].metric("Highest mAP50-95", f"{_metric_value(best, 'map50_95'):.4f}" if best else "—")
+    cards[3].metric("Best combined mAP50-95", f"{_metric_value(best, 'map50_95'):.4f}" if best else "—")
     st.caption(
-        f"Coverage: {summary['module_count']} member modules + "
-        f"{summary['baseline_control_count']} baseline control."
+        f"Displayed count removes duplicate member original controls. Raw records: {summary['count']}. "
+        f"Coverage: {summary['module_count']} member modules + {summary['baseline_control_count']} baseline controls."
     )
     if best:
         st.success(
-            f"Highest recorded run: {best.get('id', '—')} · "
-            f"{best.get('module', '—')} / {best.get('technique', '—')}"
+            f"Best combined run: {best.get('id', '—')} · "
+            f"{best.get('module', '—')} / {technique_label(best.get('technique'))} · "
+            f"mAP50-95={_metric_value(best, 'map50_95'):.4f}"
         )
-    rows = []
-    for record in summary["ranked"]:
-        rows.append({
-            "Rank": len(rows) + 1,
-            "ID": record.get("id", "—"),
-            "Model": record.get("model_id", "baseline"),
-            "Module": record.get("module", "—"),
-            "Technique": record.get("technique", "—"),
-            "Split": record.get("split", "—"),
-            "mAP50-95": round(_metric_value(record, "map50_95"), 4),
-            "mAP50": round(_metric_value(record, "map50"), 4),
-            "F1": round(_metric_value(record, "f1"), 4),
-            "Precision": round(_metric_value(record, "precision"), 4),
-            "Recall": round(_metric_value(record, "recall"), 4),
+
+    st.subheader("Primary comparison: Original vs four combined techniques")
+    st.caption("One shared Original control plus the highest validation mAP50-95 combined result from each member.")
+    primary_rows = []
+    for rank, row in enumerate(payload["original_vs_combined"], start=1):
+        primary_rows.append({
+            "Rank": rank,
+            "Comparison": row["label"],
+            "Experiment": row["id"],
+            "mAP50-95": round(row["map50_95"], 4),
+            "F1": round(row["f1"], 4),
+            "Precision": round(row["precision"], 4),
+            "Recall": round(row["recall"], 4),
         })
-    st.dataframe(rows, width="stretch", hide_index=True)
+    st.dataframe(primary_rows, width="stretch", hide_index=True)
+    primary_chart = pd.DataFrame(payload["original_vs_combined"])
+    if not primary_chart.empty:
+        st.bar_chart(primary_chart.set_index("label")[["map50_95"]].rename(columns={"map50_95": "mAP50-95"}), height=300)
 
-    baseline = next((record for record in records if record.get("id") == "baseline_original_test"), None)
-    final = next((record for record in records if record.get("model_id") == "final" and record.get("evaluation_type") == "official_final"), None)
-    if baseline and final:
-        st.subheader("Final model vs baseline")
-        comparison = []
-        for key in ("precision", "recall", "map50", "map50_95", "f1"):
-            baseline_value = _metric_value(baseline, key)
-            final_value = _metric_value(final, key)
-            comparison.append({
-                "Metric": _label(key),
-                "Baseline": round(baseline_value, 4),
-                "Final": round(final_value, 4),
-                "Difference": round(final_value - baseline_value, 4),
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Four combined techniques: metric comparison")
+        st.caption("All four winners use the same validation split and frozen detector protocol.")
+        metric_chart = pd.DataFrame(payload["metric_comparison"])
+        if not metric_chart.empty:
+            metric_frame = metric_chart.set_index("label")[
+                ["precision", "recall", "map50", "map50_95", "f1"]
+            ].rename(columns={
+                "precision": "Precision",
+                "recall": "Recall",
+                "map50": "mAP50",
+                "map50_95": "mAP50-95",
+                "f1": "F1",
             })
-        st.dataframe(comparison, width="stretch", hide_index=True)
+            st.bar_chart(
+                metric_frame,
+                height=320,
+            )
+    with right:
+        st.subheader("Processing stage comparison")
+        st.caption("Best available result for each member's Original, noise-only, contrast-only, and combined stages.")
+        stage_chart = pd.DataFrame(payload["stage_comparison"])
+        if not stage_chart.empty:
+            st.bar_chart(stage_chart.set_index("member"), height=320)
 
+    st.subheader("Combined parameter sensitivity")
+    st.caption("This exposes every combined parameter run so the best setting is auditable, not hidden behind one score.")
+    sensitivity = pd.DataFrame(payload["parameter_sensitivity"])
+    if not sensitivity.empty:
+        modules = sorted(sensitivity["module"].unique())
+        selected_module = st.selectbox("Member", modules, key="analysis_sensitivity_module")
+        module_sensitivity = sensitivity[sensitivity["module"] == selected_module].copy()
+        module_sensitivity["Parameters"] = module_sensitivity["parameters"].map(lambda value: json.dumps(value, sort_keys=True))
+        st.bar_chart(module_sensitivity.set_index("id")[["mAP50-95"]], height=280)
+        st.dataframe(module_sensitivity[["id", "technique", "Parameters", "mAP50-95"]], width="stretch", hide_index=True)
+
+    reference_rows = [record for record in summary["all_ranked"] if not is_combined_record(record)]
+    if reference_rows:
+        with st.expander("Reference runs (original, noise-only and contrast-only)"):
+            st.dataframe(
+                [
+                    {
+                        "ID": record.get("id", "—"),
+                        "Module": record.get("module", "—"),
+                        "Technique": technique_label(record.get("technique")),
+                        "Stage": (
+                            "Original" if record.get("technique") == "original" else
+                            "Noise-only" if record.get("technique") in {value[0] for value in MEMBER_TECHNIQUES.values()} else
+                            "Contrast-only" if record.get("technique") in {value[1] for value in MEMBER_TECHNIQUES.values()} else
+                            "Other reference"
+                        ),
+                        "Split": record.get("split", "—"),
+                        "mAP50-95": round(_metric_value(record, "map50_95"), 4),
+                    }
+                    for record in reference_rows
+                ],
+                width="stretch",
+                hide_index=True,
+            )
 
 def _render_reproducibility(st, selected: dict, model_id: str, *, key_prefix: str) -> None:
     checkpoint = _checkpoint_for_model(model_id)
@@ -313,6 +364,22 @@ def _render_comparison_filters(st, records: list[dict]) -> dict[str, str]:
             st, "Technique", technique_options, key=keys["technique"]
         )
     selection = normalize_selection(records, selection)
+    run_type_options = ["all", "combined", "reference"]
+    run_type_labels = {
+        "combined": "Combined + original baseline",
+        "reference": "Reference runs",
+        "all": "All runs",
+    }
+    current_run_type = st.session_state.get("compare_run_type", "all")
+    if current_run_type not in run_type_options:
+        current_run_type = "all"
+    selection["run_type"] = st.selectbox(
+        "Run type",
+        run_type_options,
+        index=run_type_options.index(current_run_type),
+        format_func=run_type_labels.get,
+        key="compare_run_type",
+    )
     return selection
 
 
@@ -370,8 +437,8 @@ def _render_active_experiment(st, record: dict, *, heading: str = "Active experi
 
 def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer") -> None:
     recommended = best_experiment(records)
-    st.subheader("Recommended best experiment")
-    st.caption("Recommendation rule: val split + ablation evaluation + highest mAP50-95.")
+    st.subheader("Recommended best combined experiment")
+    st.caption("Recommendation rule: val split + ablation evaluation + combined technique + highest mAP50-95.")
     if recommended is None:
         st.warning("No validation ablation result is available for recommendation.")
         return
@@ -417,7 +484,7 @@ def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer"
 
 def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None:
     st.header("Compare experiments")
-    st.caption("Filter the shared validation and test records. Technique options follow the selected module.")
+    st.caption("Best run and default ranking use the four member combined techniques. Reference runs remain available for comparison.")
     selection = _render_comparison_filters(st, records)
     st.info("Use val for tuning and comparison. Use test only for the final frozen comparison.")
     sort_col, direction_col, reset_col = st.columns([2, 1.5, 1])
@@ -441,10 +508,15 @@ def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None
             "Reset filters",
             key="compare_reset",
             on_click=reset_selection_state,
-            kwargs={"state": st.session_state, "prefix": "compare_"},
+            kwargs={
+                "state": st.session_state,
+                "prefix": "compare_",
+                "extra_fields": ("run_type",),
+                "defaults": {"run_type": "all"},
+            },
         )
 
-    filtered = filter_records(records, **selection)
+    filtered = comparison_records(records, **selection)
     filtered.sort(
         key=lambda record: float(record.get("metrics", {}).get(sort_metric, float("-inf"))),
         reverse=direction == "High to low",
@@ -456,20 +528,32 @@ def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None
         )
         return
 
-    best = filtered[0]
+    best_combined = best_experiment(records)
     cards = st.columns(4)
     cards[0].metric("Visible runs", len(filtered))
-    cards[1].metric(_label(sort_metric), f"{float(best.get('metrics', {}).get(sort_metric, 0)):.4f}")
-    cards[2].metric("Best run", best.get("id", "—"))
-    cards[3].metric("Module", best.get("module", "—"))
+    cards[1].metric(_label(sort_metric), f"{float(filtered[0].get('metrics', {}).get(sort_metric, 0)):.4f}")
+    cards[2].metric(
+        "Best combined mAP50-95",
+        f"{_metric_value(best_combined, 'map50_95'):.4f}" if best_combined else "—",
+    )
+    cards[3].metric("Combined modules", len({record.get("module") for record in filtered if is_combined_record(record)}))
+    if best_combined:
+        st.success(
+            f"Best combined run: {best_combined.get('id', '—')} · "
+            f"{best_combined.get('module', '—')} / {best_combined.get('technique', '—')}"
+        )
+        st.caption(
+            "Parameters: "
+            + json.dumps(best_combined.get("parameters", {}), sort_keys=True)
+        )
 
     table = []
     for record in filtered:
         row = {
             "ID": record["id"],
             "Model": record.get("model_id", "baseline"),
-            "Module": record.get("module", "—"),
-            "Technique": record.get("technique", "—"),
+            "Module": "baseline control" if record.get("id") == "original_shared_control" else record.get("module", "—"),
+            "Technique": record.get("display_label", record.get("technique", "—")),
             "Split": record.get("split", "—"),
         }
         row.update({_label(key): value for key, value in record.get("parameters", {}).items()})

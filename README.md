@@ -187,9 +187,9 @@ streamlit run scripts/streamlit_dashboard.py -- \
 
 The dashboard has four main tabs:
 
-1. **Compare experiments** — filter by model, module, technique and split, then sort by mAP50-95, mAP50, F1, Precision or Recall.
-2. **Run image inference** — upload images, select a baseline or final model and technique, and view the original image, preprocessed image and YOLO result.
-3. **Analysis & reports** — view experiment count, four member modules, one baseline control, model coverage, ranking and protocol details.
+1. **Compare experiments** — filter by model, module, technique, split and run type, then sort by mAP50-95, mAP50, F1, Precision or Recall. The default view is **All runs**; the Best recommendation still uses combined techniques only. Original, noise-only and contrast-only records remain available as reference runs.
+2. **Run image inference** — upload images, select the shared baseline model and technique, and view the original image, preprocessed image and YOLO result.
+3. **Analysis & reports** — view displayed experiment count, four member modules, shared baseline controls, model coverage, ranking and protocol details.
 4. **Video processing** — upload a short video and run preprocessing plus frame-by-frame YOLO detection, producing browser-compatible H.264 output when available.
 
 Export a PDF, CSV and JSON report:
@@ -202,21 +202,9 @@ python3 scripts/export_project_report.py \
 
 Generated reports are reproducible artifacts. The source code, configs, tests and README are the important files to track in Git; generated images do not need to be committed.
 
-## 9. Final Model Workflow
+## 9. Model Selection and Test Protocol
 
-After selecting the best technique on `val`, preprocess the train, validation and test images, then train a new final YOLO model with the baseline training protocol:
-
-```bash
-python3 scripts/prepare_final_dataset.py
-
-python3 scripts/train_final_model.py \
-  --weights yolov8s.pt \
-  --epochs 100
-
-python3 scripts/evaluate_final_model.py
-```
-
-The final model must start from a new YOLO initialization such as `yolov8s.pt`. Do not use the baseline `best.pt` as the starting point for final training.
+The active model is the shared baseline YOLO checkpoint evaluated on the original input. Preprocessing candidates are compared with the same checkpoint on `val`; the `test` split is reserved for the frozen official comparison.
 
 Current saved official test reference results:
 
@@ -224,9 +212,8 @@ Current saved official test reference results:
 |---|---:|---:|---:|---:|
 | Baseline YOLO + original | 0.4890 | 0.9515 | 0.9233 | 0.9372 |
 | Baseline YOLO + median k=5 | 0.4994 | 0.9528 | 0.9294 | 0.9409 |
-| Final YOLO + median k=5 | 0.4879 | 0.9272 | 0.9168 | 0.9220 |
 
-The current evidence shows that `median k=5` performs better than the original input with the frozen baseline checkpoint, while the current final retraining result does not exceed the baseline. The report should present this result accurately.
+The current evidence shows that `median k=5` performs better than the original input with the frozen baseline checkpoint. The active prototype does not label a single-technique retraining as a final model because it does not satisfy the two-technique project requirement. The report should present this distinction accurately.
 
 ## 10. Image, ZIP and Video Testing
 
