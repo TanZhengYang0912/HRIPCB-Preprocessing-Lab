@@ -15,6 +15,8 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+DEFAULT_RESULTS_PATH = PROJECT_ROOT / "runs/project_validation_comparison/results.json"
+
 from hripcb_member1.evaluation import select_device
 from hripcb_dashboard.batch import extract_image_entries
 from hripcb_dashboard.analysis import MEMBER_TECHNIQUES, build_analysis_payload, technique_label
@@ -53,6 +55,13 @@ INFERENCE_IOU = 0.70
 
 def _load_records(path: Path) -> list[dict]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _resolve_results_path(path: Path) -> Path:
+    """Resolve relative result paths from the repository, not the launch cwd."""
+
+    path = Path(path)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 def _label(key: str) -> str:
@@ -785,6 +794,7 @@ def _render_video_mode(st, records: list[dict]) -> None:
 def main(results_path: Path) -> None:
     import streamlit as st
 
+    results_path = _resolve_results_path(results_path)
     st.set_page_config(page_title="HRIPCB Preprocessing Lab", page_icon="🔬", layout="wide")
     st.markdown("""
     <style>
@@ -816,6 +826,6 @@ def main(results_path: Path) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--results", type=Path, default=Path("runs/project_validation_comparison/results.json"))
+    parser.add_argument("--results", type=Path, default=DEFAULT_RESULTS_PATH)
     args, _ = parser.parse_known_args()
     main(args.results)

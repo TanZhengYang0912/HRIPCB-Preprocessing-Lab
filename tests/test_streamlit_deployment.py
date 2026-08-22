@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import scripts.streamlit_dashboard as dashboard
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,3 +20,12 @@ def test_streamlit_cloud_has_one_complete_requirements_manifest():
         "ultralytics-opencv-headless>=",
     ):
         assert dependency in requirements
+
+
+def test_default_results_path_is_project_relative(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    resolved = dashboard._resolve_results_path(Path("runs/project_validation_comparison/results.json"))
+
+    assert resolved == dashboard.PROJECT_ROOT / "runs/project_validation_comparison/results.json"
+    assert len(dashboard._load_records(resolved)) == 70
