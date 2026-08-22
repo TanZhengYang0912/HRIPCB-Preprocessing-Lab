@@ -1,2 +1,0 @@
-streamlit>=1.51,<2
-reportlab>=4,<6

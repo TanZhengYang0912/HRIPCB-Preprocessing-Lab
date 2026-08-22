@@ -30,8 +30,7 @@ ImageProcessing-Assignment/
 ├── src/                           # Preprocessing, evaluation and dashboard packages
 ├── tests/                         # Unit, integration and dashboard tests
 ├── runs/                          # Local models, metrics, reports and videos
-├── requirements.txt               # YOLO and computer-vision dependencies
-├── requirements-dashboard.txt     # Streamlit dependencies
+├── requirements.txt               # Complete training and Streamlit dependencies
 └── pyproject.toml
 ```
 
@@ -45,7 +44,6 @@ For macOS or Linux:
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r requirements.txt
-python3 -m pip install -r requirements-dashboard.txt
 ```
 
 Place the dataset in this structure:
