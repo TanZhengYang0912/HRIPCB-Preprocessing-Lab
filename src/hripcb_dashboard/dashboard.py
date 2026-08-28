@@ -123,7 +123,7 @@ const primaryMetric = {json.dumps(primary_metric)};
 const labels = {{map50_95: 'mAP50-95', map50: 'mAP50', precision: 'Precision', recall: 'Recall', f1: 'F1', milliseconds: 'Time (ms)', mean_psnr: 'Mean PSNR', mean_ssim: 'Mean SSIM', model_id: 'Model', split: 'Split'}};
 const state = {{model: 'all', split: 'all', module: 'all', technique: 'all', runType: 'all', search: '', sortMetric: primaryMetric, direction: 'desc', selected: null}};
 const filterFields = ['model', 'split', 'module', 'technique'];
-const combinedTechniques = new Set(['gaussian_bbhe', 'median_clahe', 'bilateral_agcwd', 'nlm_msr']);
+const combinedTechniques = new Set(['gaussian_bbhe', 'wavelet_homomorphic', 'bilateral_agcwd', 'nlm_msr']);
 const runType = record => record.is_combined === true || record.evaluation_stage === 'combined' || combinedTechniques.has(String(record.technique || '').toLowerCase()) ? 'combined' : 'reference';
 const isSharedOriginal = record => record.model_id === 'baseline' && record.split === 'val' && String(record.technique || '').toLowerCase() === 'original' && ['member1', 'member2', 'member3', 'member4'].includes(record.module);
 const firstSharedOriginal = records.find(record => isSharedOriginal(record));

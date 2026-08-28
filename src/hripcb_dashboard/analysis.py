@@ -12,9 +12,9 @@ TECHNIQUE_LABELS = {
     "gaussian": "Gaussian",
     "bbhe": "BBHE",
     "gaussian_bbhe": "Gaussian + BBHE",
-    "median": "Median",
-    "clahe": "CLAHE",
-    "median_clahe": "Median + CLAHE",
+    "wavelet": "Wavelet",
+    "homomorphic": "Homomorphic",
+    "wavelet_homomorphic": "Wavelet + Homomorphic",
     "bilateral": "Bilateral",
     "agcwd": "AGCWD",
     "bilateral_agcwd": "Bilateral + AGCWD",
@@ -25,7 +25,7 @@ TECHNIQUE_LABELS = {
 
 MEMBER_TECHNIQUES = {
     "member1": ("gaussian", "bbhe"),
-    "member2": ("median", "clahe"),
+    "member2": ("wavelet", "homomorphic"),
     "member3": ("bilateral", "agcwd"),
     "member4": ("nlm", "msr"),
 }

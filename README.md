@@ -14,7 +14,7 @@ The dataset contains six PCB defect classes: `Missing_hole`, `Mouse_bite`, `Open
 | Module | Noise removal | Contrast enhancement |
 |---|---|---|
 | member1 | Gaussian Filtering | BBHE |
-| member2 | Median Filtering | CLAHE |
+| member2 | Wavelet Denoising | Homomorphic Filtering |
 | member3 | Bilateral Filtering | AGCWD |
 | member4 | Non-local Means | Multi-Scale Retinex |
 
@@ -158,11 +158,11 @@ Each sweep changes only preprocessing parameters:
 | Module | Candidate parameters |
 |---|---|
 | member1 | Gaussian kernel `5, 7, 9`; sigmaX `1.0, 1.5, 2.0`; BBHE strength `0.25, 0.5, 0.7, 1.0` |
-| member2 | Median kernel `3, 5, 7`; CLAHE clip limit `1.5, 2.0, 3.0`; tile grid `8×8` |
+| member2 | Wavelets `db1` and `sym4`; BayesShrink/VisuShrink with soft thresholding; homomorphic `(gamma low, gamma high, cutoff)` presets `(0.5, 1.5, 30)`, `(0.7, 1.3, 50)`, `(0.8, 1.2, 80)` |
 | member3 | Bilateral diameter `5, 7, 9`; sigma colour `25, 50, 75`; AGCWD gamma `0.8, 1.0, 1.2` |
 | member4 | NLM `h=3, 7, 10`; MSR scales `(15, 25, 2)`, `(15, 50, 150)`, `(20, 80, 160)` |
 
-The highest current validation result is `member2 / median_k5` with `mAP50-95=0.5269`. This is validation evidence for parameter selection, not the final test score.
+Member 2's highest current validation result is `wavelet_w_sym4` with `mAP50-95=0.5179`. The best current combined Member 2 result is `wavelet_w_visu_homomorphic_h_c30` with `mAP50-95=0.4832`. These are validation results for parameter selection, not final test scores.
 
 ## 8. Dashboard, Sorting and Reports
 
@@ -209,9 +209,8 @@ Current saved official test reference results:
 | Model / input | mAP50-95 | Precision | Recall | F1 |
 |---|---:|---:|---:|---:|
 | Baseline YOLO + original | 0.4890 | 0.9515 | 0.9233 | 0.9372 |
-| Baseline YOLO + median k=5 | 0.4994 | 0.9528 | 0.9294 | 0.9409 |
 
-The current evidence shows that `median k=5` performs better than the original input with the frozen baseline checkpoint. The active prototype does not label a single-technique retraining as a final model because it does not satisfy the two-technique project requirement. The report should present this distinction accurately.
+The current validation evidence shows that Wavelet `sym4` improves on the original input with the frozen baseline checkpoint. The combined Wavelet + Homomorphic candidate still requires an official frozen test run before a new test score can be reported. The active prototype does not label the single Wavelet result as a final model because it does not satisfy the two-technique project requirement.
 
 ## 10. Image, ZIP and Video Testing
 

@@ -49,7 +49,7 @@ def evaluate(args: argparse.Namespace) -> Path:
     map50_95 = _value(metrics, "map", "metrics/mAP50-95(B)")
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     row = {
-        "id": args.record_id or f"{args.model_id}_median_k5_{args.split}",
+        "id": args.record_id or f"{args.model_id}_{args.technique}_{args.split}",
         "model_id": args.model_id,
         "model_label": args.model_label,
         "module": args.module,
@@ -58,7 +58,15 @@ def evaluate(args: argparse.Namespace) -> Path:
         "evaluation_type": args.evaluation_type,
         "training_preprocessing": args.training_preprocessing,
         "evaluation_preprocessing": args.evaluation_preprocessing,
-        "parameters": {"median_kernel_size": args.median_kernel_size},
+        "parameters": {
+            "wavelet_name": args.wavelet_name,
+            "wavelet_method": args.wavelet_method,
+            "wavelet_mode": args.wavelet_mode,
+            "wavelet_levels": args.wavelet_levels,
+            "homomorphic_gamma_low": args.homomorphic_gamma_low,
+            "homomorphic_gamma_high": args.homomorphic_gamma_high,
+            "homomorphic_cutoff": args.homomorphic_cutoff,
+        },
         "metrics": {
             "precision": precision,
             "recall": recall,
@@ -83,23 +91,29 @@ def evaluate(args: argparse.Namespace) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", type=Path, default=Path("runs/retrained_median_candidate/weights/best.pt"))
-    parser.add_argument("--data", type=Path, default=Path("runs/retrained_median_dataset/data.yaml"))
-    parser.add_argument("--output", type=Path, default=Path("runs/retrained_median_candidate/evaluation"))
+    parser.add_argument("--checkpoint", type=Path, default=Path("runs/retrained_wavelet_homomorphic_candidate/weights/best.pt"))
+    parser.add_argument("--data", type=Path, default=Path("runs/retrained_wavelet_homomorphic_dataset/data.yaml"))
+    parser.add_argument("--output", type=Path, default=Path("runs/retrained_wavelet_homomorphic_candidate/evaluation"))
     parser.add_argument("--split", default="test")
     parser.add_argument("--imgsz", type=int, default=1024)
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--iou", type=float, default=0.70)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--workers", type=int, default=0)
-    parser.add_argument("--model-id", default="retrained_median_candidate")
-    parser.add_argument("--model-label", default="Retrained Median Candidate")
+    parser.add_argument("--model-id", default="retrained_wavelet_homomorphic_candidate")
+    parser.add_argument("--model-label", default="Retrained Wavelet + Homomorphic Candidate")
     parser.add_argument("--module", default="member2")
-    parser.add_argument("--technique", default="median")
-    parser.add_argument("--training-preprocessing", default="median_k5")
-    parser.add_argument("--evaluation-preprocessing", default="median_k5")
+    parser.add_argument("--technique", default="wavelet_homomorphic")
+    parser.add_argument("--training-preprocessing", default="wavelet_homomorphic")
+    parser.add_argument("--evaluation-preprocessing", default="wavelet_homomorphic")
     parser.add_argument("--evaluation-type", default="retrained_candidate")
-    parser.add_argument("--median-kernel-size", type=int, default=5)
+    parser.add_argument("--wavelet-name", default="sym4")
+    parser.add_argument("--wavelet-method", default="VisuShrink")
+    parser.add_argument("--wavelet-mode", default="soft")
+    parser.add_argument("--wavelet-levels", type=int, default=2)
+    parser.add_argument("--homomorphic-gamma-low", type=float, default=0.5)
+    parser.add_argument("--homomorphic-gamma-high", type=float, default=1.5)
+    parser.add_argument("--homomorphic-cutoff", type=float, default=30.0)
     parser.add_argument("--record-id", default="")
     args = parser.parse_args()
     print(f"retrained candidate evaluation: {evaluate(args)}")

@@ -5,10 +5,10 @@ from __future__ import annotations
 from .filters import (
     apply_agcwd,
     apply_bilateral_filter,
-    apply_clahe,
-    apply_median_filter,
+    apply_homomorphic_filter,
     apply_multi_scale_retinex,
     apply_non_local_means,
+    apply_wavelet_denoise,
 )
 
 
@@ -25,6 +25,43 @@ def _candidate(candidate_id: str, module: str, technique: str, parameters: dict)
     }
 
 
+def _wavelet_parameters(preset: dict) -> dict:
+    levels = preset.get("wavelet_levels")
+    return {
+        "wavelet_name": str(preset.get("wavelet", "sym4")),
+        "wavelet_method": str(preset.get("method", "BayesShrink")),
+        "wavelet_mode": str(preset.get("mode", "soft")),
+        "wavelet_levels": None if levels is None else int(levels),
+    }
+
+
+def _homomorphic_parameters(preset: dict) -> dict:
+    return {
+        "homomorphic_gamma_low": float(preset.get("gamma_low", 0.5)),
+        "homomorphic_gamma_high": float(preset.get("gamma_high", 1.5)),
+        "homomorphic_cutoff": float(preset.get("cutoff", 30.0)),
+    }
+
+
+def _apply_wavelet(image, parameters: dict):
+    return apply_wavelet_denoise(
+        image,
+        wavelet=str(parameters["wavelet_name"]),
+        method=str(parameters["wavelet_method"]),
+        mode=str(parameters["wavelet_mode"]),
+        wavelet_levels=parameters.get("wavelet_levels"),
+    )
+
+
+def _apply_homomorphic(image, parameters: dict):
+    return apply_homomorphic_filter(
+        image,
+        gamma_low=float(parameters["homomorphic_gamma_low"]),
+        gamma_high=float(parameters["homomorphic_gamma_high"]),
+        cutoff=float(parameters["homomorphic_cutoff"]),
+    )
+
+
 def build_candidates(module: str, config: dict) -> list[dict]:
     """Build one original, three single-method, and nine combined candidates."""
 
@@ -35,26 +72,35 @@ def build_candidates(module: str, config: dict) -> list[dict]:
 
     candidates = [_candidate("original", module, "original", {})]
     if module == "member2":
-        median = [int(value) for value in config["median_kernel_sizes"]]
-        clahe = config["clahe_presets"]
-        for kernel in median:
-            candidates.append(_candidate(f"median_k{kernel}", module, "median", {"median_kernel_size": kernel}))
-        for preset in clahe:
-            parameters = {
-                "clahe_clip_limit": float(preset["clip_limit"]),
-                "clahe_tile_grid_width": int(preset["tile_grid_size"][0]),
-                "clahe_tile_grid_height": int(preset["tile_grid_size"][1]),
-            }
-            candidates.append(_candidate(f"clahe_{preset['id']}", module, "clahe", parameters))
-        for kernel in median:
-            for preset in clahe:
+        wavelets = config["wavelet_presets"]
+        homomorphics = config["homomorphic_presets"]
+        for preset in wavelets:
+            candidates.append(
+                _candidate(f"wavelet_{preset['id']}", module, "wavelet", _wavelet_parameters(preset))
+            )
+        for preset in homomorphics:
+            candidates.append(
+                _candidate(
+                    f"homomorphic_{preset['id']}",
+                    module,
+                    "homomorphic",
+                    _homomorphic_parameters(preset),
+                )
+            )
+        for wavelet_preset in wavelets:
+            for homomorphic_preset in homomorphics:
                 parameters = {
-                    "median_kernel_size": kernel,
-                    "clahe_clip_limit": float(preset["clip_limit"]),
-                    "clahe_tile_grid_width": int(preset["tile_grid_size"][0]),
-                    "clahe_tile_grid_height": int(preset["tile_grid_size"][1]),
+                    **_wavelet_parameters(wavelet_preset),
+                    **_homomorphic_parameters(homomorphic_preset),
                 }
-                candidates.append(_candidate(f"median_k{kernel}_clahe_{preset['id']}", module, "median_clahe", parameters))
+                candidates.append(
+                    _candidate(
+                        f"wavelet_{wavelet_preset['id']}_homomorphic_{homomorphic_preset['id']}",
+                        module,
+                        "wavelet_homomorphic",
+                        parameters,
+                    )
+                )
         return candidates
 
     if module == "member3":
@@ -124,20 +170,12 @@ def apply_candidate(image, candidate):
     parameters = candidate.get("parameters", {})
     if technique == "original":
         return image.copy()
-    if technique == "median":
-        return apply_median_filter(image, int(parameters["median_kernel_size"]))
-    if technique == "clahe":
-        return apply_clahe(
-            image,
-            float(parameters["clahe_clip_limit"]),
-            (int(parameters["clahe_tile_grid_width"]), int(parameters["clahe_tile_grid_height"])),
-        )
-    if technique == "median_clahe":
-        return apply_clahe(
-            apply_median_filter(image, int(parameters["median_kernel_size"])),
-            float(parameters["clahe_clip_limit"]),
-            (int(parameters["clahe_tile_grid_width"]), int(parameters["clahe_tile_grid_height"])),
-        )
+    if technique == "wavelet":
+        return _apply_wavelet(image, parameters)
+    if technique == "homomorphic":
+        return _apply_homomorphic(image, parameters)
+    if technique == "wavelet_homomorphic":
+        return _apply_homomorphic(_apply_wavelet(image, parameters), parameters)
     if technique == "bilateral":
         return apply_bilateral_filter(
             image,

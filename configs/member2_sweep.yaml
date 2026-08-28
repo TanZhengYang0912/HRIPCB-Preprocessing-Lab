@@ -15,14 +15,30 @@ model_id: baseline
 model_label: Baseline YOLO
 training_preprocessing: original
 evaluation_type: ablation
-median_kernel_sizes: [3, 5, 7]
-clahe_presets:
-  - id: c15
-    clip_limit: 1.5
-    tile_grid_size: [8, 8]
-  - id: c20
-    clip_limit: 2.0
-    tile_grid_size: [8, 8]
-  - id: c30
-    clip_limit: 3.0
-    tile_grid_size: [8, 8]
+wavelet_presets:
+  - id: w_db1
+    wavelet: db1
+    method: BayesShrink
+    mode: soft
+  - id: w_sym4
+    wavelet: sym4
+    method: BayesShrink
+    mode: soft
+  - id: w_visu
+    wavelet: sym4
+    method: VisuShrink
+    mode: soft
+    wavelet_levels: 2
+homomorphic_presets:
+  - id: h_c30
+    gamma_low: 0.5
+    gamma_high: 1.5
+    cutoff: 30.0
+  - id: h_c50
+    gamma_low: 0.7
+    gamma_high: 1.3
+    cutoff: 50.0
+  - id: h_c80
+    gamma_low: 0.8
+    gamma_high: 1.2
+    cutoff: 80.0

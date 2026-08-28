@@ -8,7 +8,7 @@ from build_project_dashboard import aggregate_results
 from hripcb_dashboard.dashboard import write_dashboard_html
 
 
-def test_project_aggregate_does_not_resurrect_obsolete_candidate(tmp_path):
+def test_project_aggregate_does_not_resurrect_retired_member2_results(tmp_path):
     runs_root = tmp_path / "runs"
     member_dir = runs_root / "member1_validation_sweep"
     member_dir.mkdir(parents=True)
@@ -20,11 +20,11 @@ def test_project_aggregate_does_not_resurrect_obsolete_candidate(tmp_path):
         "split": "val",
         "metrics": {"map50_95": 0.5},
     }]))
-    candidate_dir = runs_root / "retrained_median_candidate" / "evaluation"
-    candidate_dir.mkdir(parents=True)
-    (candidate_dir / "results.json").write_text(json.dumps([{
-        "id": "obsolete_candidate",
-        "model_id": "retrained_median_candidate",
+    retired_dir = runs_root / "baseline_median_test"
+    retired_dir.mkdir(parents=True)
+    (retired_dir / "results.json").write_text(json.dumps([{
+        "id": "retired_member2_result",
+        "model_id": "baseline",
         "module": "member2",
         "technique": "median",
         "split": "test",
@@ -40,15 +40,15 @@ def test_project_aggregate_does_not_resurrect_obsolete_candidate(tmp_path):
 def test_dashboard_contains_model_and_metric_sorting_controls(tmp_path):
     records = [
         {
-            "id": "member2_median_k3",
+            "id": "member2_wavelet_sym4",
             "module": "member2",
-            "technique": "median",
+            "technique": "wavelet",
             "model_id": "baseline",
             "model_label": "Baseline YOLO",
             "split": "val",
-            "parameters": {"median_kernel_size": 3},
+            "parameters": {"wavelet_name": "sym4", "wavelet_method": "BayesShrink"},
             "metrics": {"map50_95": 0.4, "f1": 0.7},
-            "preview": "../member2_parameter_sweep/previews/member2_median_k3.jpg",
+            "preview": "../member2_validation_sweep/previews/wavelet_w_sym4.jpg",
         }
     ]
     path = write_dashboard_html(tmp_path, records, title="Project Sweep")

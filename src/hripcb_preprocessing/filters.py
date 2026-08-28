@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 import cv2
 import numpy as np
+from skimage.restoration import denoise_wavelet
 
 
 def _validate_image(image: np.ndarray) -> None:
@@ -13,36 +14,6 @@ def _validate_image(image: np.ndarray) -> None:
         raise ValueError("image must be a uint8 NumPy array")
     if image.ndim != 3 or image.shape[2] != 3:
         raise ValueError("image must have three BGR channels")
-
-
-def apply_median_filter(image: np.ndarray, kernel_size: int = 5) -> np.ndarray:
-    """Remove impulse-like noise while preserving hard PCB edges."""
-
-    _validate_image(image)
-    if kernel_size <= 0 or kernel_size % 2 == 0:
-        raise ValueError("kernel_size must be a positive odd integer")
-    return cv2.medianBlur(image, int(kernel_size))
-
-
-def apply_clahe(
-    image: np.ndarray,
-    clip_limit: float = 2.0,
-    tile_grid_size: tuple[int, int] = (8, 8),
-) -> np.ndarray:
-    """Enhance local luminance contrast without changing chroma."""
-
-    _validate_image(image)
-    if clip_limit <= 0:
-        raise ValueError("clip_limit must be positive")
-    if len(tile_grid_size) != 2 or min(tile_grid_size) <= 0:
-        raise ValueError("tile_grid_size must contain two positive integers")
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-    clahe = cv2.createCLAHE(
-        clipLimit=float(clip_limit),
-        tileGridSize=(int(tile_grid_size[0]), int(tile_grid_size[1])),
-    )
-    lab[..., 0] = clahe.apply(lab[..., 0])
-    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
 
 def apply_bilateral_filter(
@@ -166,3 +137,100 @@ def apply_multi_scale_retinex(
     if scale != 1.0:
         return cv2.resize(result, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_LINEAR)
     return result
+
+
+WAVELET_METHODS = ("BayesShrink", "VisuShrink")
+WAVELET_MODES = ("soft", "hard")
+
+
+def apply_wavelet_denoise(
+    image: np.ndarray,
+    wavelet: str = "sym4",
+    method: str = "BayesShrink",
+    mode: str = "soft",
+    wavelet_levels: int | None = None,
+) -> np.ndarray:
+    """Denoise in the wavelet transform domain by thresholding detail coefficients.
+
+    Unlike the spatial filters used by the other modules, this decomposes the
+    image into frequency subbands and shrinks the coefficients that carry noise,
+    leaving the coarse structure of the copper tracks untouched.
+    """
+
+    _validate_image(image)
+    if method not in WAVELET_METHODS:
+        raise ValueError(f"method must be one of {WAVELET_METHODS}")
+    if mode not in WAVELET_MODES:
+        raise ValueError(f"mode must be one of {WAVELET_MODES}")
+    if wavelet_levels is not None and int(wavelet_levels) <= 0:
+        raise ValueError("wavelet_levels must be a positive integer when provided")
+    if not str(wavelet):
+        raise ValueError("wavelet must be a non-empty wavelet name")
+
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    denoised = denoise_wavelet(
+        rgb,
+        channel_axis=-1,
+        convert2ycbcr=True,
+        method=method,
+        mode=mode,
+        wavelet=str(wavelet),
+        wavelet_levels=None if wavelet_levels is None else int(wavelet_levels),
+        rescale_sigma=True,
+    )
+    denoised = np.clip(denoised * 255.0, 0, 255).astype(np.uint8)
+    return cv2.cvtColor(denoised, cv2.COLOR_RGB2BGR)
+
+
+def apply_homomorphic_filter(
+    image: np.ndarray,
+    gamma_low: float = 0.5,
+    gamma_high: float = 1.5,
+    cutoff: float = 30.0,
+    sharpness: float = 1.0,
+) -> np.ndarray:
+    """Normalise slowly varying illumination in the log-frequency domain.
+
+    The luminance channel is modelled as illumination multiplied by reflectance.
+    Taking the logarithm separates the two into additive low- and high-frequency
+    components, so a Gaussian high-pass attenuates the illumination term while
+    preserving the reflectance detail that carries the defect signal.
+    """
+
+    _validate_image(image)
+    if cutoff <= 0:
+        raise ValueError("cutoff must be positive")
+    if sharpness <= 0:
+        raise ValueError("sharpness must be positive")
+    if gamma_low < 0:
+        raise ValueError("gamma_low must not be negative")
+    if gamma_high <= gamma_low:
+        raise ValueError("gamma_high must be greater than gamma_low")
+
+    ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
+    luminance = ycrcb[..., 0].astype(np.float32)
+    spectrum = np.fft.fftshift(np.fft.fft2(np.log1p(luminance)))
+
+    height, width = luminance.shape
+    rows = np.arange(height, dtype=np.float32).reshape(-1, 1) - height / 2.0
+    columns = np.arange(width, dtype=np.float32).reshape(1, -1) - width / 2.0
+    distance = rows**2 + columns**2
+    transfer = (float(gamma_high) - float(gamma_low)) * (
+        1.0 - np.exp(-float(sharpness) * distance / (float(cutoff) ** 2))
+    ) + float(gamma_low)
+
+    filtered = np.real(np.fft.ifft2(np.fft.ifftshift(spectrum * transfer)))
+    restored = np.expm1(filtered)
+
+    # Rescale by matching the original luminance moments rather than stretching to
+    # the full 0-255 range. A percentile stretch dominates the output and destroys
+    # far more structure than the frequency filtering itself, which defeats the
+    # purpose of illumination normalisation.
+    restored_std = float(restored.std())
+    if restored_std <= 1e-6:
+        scaled = np.full_like(restored, float(luminance.mean()))
+    else:
+        gain = float(luminance.std()) / restored_std
+        scaled = (restored - float(restored.mean())) * gain + float(luminance.mean())
+    ycrcb[..., 0] = np.clip(scaled, 0, 255).astype(np.uint8)
+    return cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)

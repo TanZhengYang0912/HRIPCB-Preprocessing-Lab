@@ -44,10 +44,6 @@ def aggregate_results(runs_root: Path, output_root: Path) -> Path:
     official_test_dir = runs_root / "official_test_comparison"
     if (official_test_dir / "results.json").is_file():
         sources.append((official_test_dir, "official_test"))
-    else:
-        baseline_test_dir = runs_root / "baseline_median_test"
-        if (baseline_test_dir / "results.json").is_file():
-            sources.append((baseline_test_dir, "baseline_test"))
     for source_dir, _source_label in sources:
         source_file = source_dir / "results.json"
         if not source_file.is_file():

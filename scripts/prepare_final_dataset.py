@@ -20,7 +20,7 @@ from hripcb_preprocessing.candidates import apply_candidate
 
 def prepare(dataset_root: Path, output_root: Path, selection_path: Path, data_config: Path) -> Path:
     selection = json.loads(Path(selection_path).read_text(encoding="utf-8"))
-    winner = selection["overall_best"]
+    winner = selection["best_by_module"]["member2"]
     candidate = {
         "module": winner["module"],
         "technique": winner["technique"],
@@ -68,7 +68,7 @@ def prepare(dataset_root: Path, output_root: Path, selection_path: Path, data_co
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=Path, default=Path("HRIPCB_UPDATE"))
-    parser.add_argument("--output", type=Path, default=Path("runs/retrained_median_dataset"))
+    parser.add_argument("--output", type=Path, default=Path("runs/retrained_wavelet_homomorphic_dataset"))
     parser.add_argument("--selection", type=Path, default=Path("runs/project_validation_comparison/selection.json"))
     parser.add_argument("--data-config", type=Path, default=Path("configs/hripcb_local.yaml"))
     args = parser.parse_args()

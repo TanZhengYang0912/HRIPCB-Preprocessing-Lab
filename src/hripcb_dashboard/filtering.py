@@ -9,7 +9,7 @@ ALL = "all"
 FILTER_FIELDS = ("model", "split", "module", "technique")
 COMBINED_TECHNIQUES = frozenset({
     "gaussian_bbhe",
-    "median_clahe",
+    "wavelet_homomorphic",
     "bilateral_agcwd",
     "nlm_msr",
 })

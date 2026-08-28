@@ -103,7 +103,7 @@ def test_record_metric_summary_exposes_consistent_display_and_reference_counts()
             "module": f"member{i}",
             "technique": (
                 "gaussian_bbhe" if i == 1 else
-                "median_clahe" if i == 2 else
+                "wavelet_homomorphic" if i == 2 else
                 "bilateral_agcwd" if i == 3 else "nlm_msr"
             ),
             "split": "val",
@@ -165,12 +165,12 @@ def test_analysis_payload_contains_original_and_four_combined_winners():
 
 def test_build_report_pdf_contains_a_real_pdf_header():
     records = [{
-        "id": "member2_median_k5",
+        "id": "member2_wavelet_sym4",
         "model_id": "baseline",
         "module": "member2",
-        "technique": "median",
+        "technique": "wavelet",
         "split": "val",
-        "parameters": {"median_kernel_size": 5},
+        "parameters": {"wavelet_name": "sym4", "wavelet_method": "BayesShrink"},
         "metrics": {"map50_95": 0.5269, "precision": 0.96, "recall": 0.95, "map50": 0.97, "f1": 0.95},
     }]
 
@@ -206,9 +206,9 @@ def test_report_chart_payload_contains_report_ready_comparisons():
     assert len(charts["stage_comparison"]) == 4
 
 
-def test_official_comparison_can_exclude_obsolete_retrained_candidate(tmp_path):
+def test_official_comparison_can_exclude_unrequested_retrained_candidate(tmp_path):
     original_path = tmp_path / "original.json"
-    median_path = tmp_path / "median.json"
+    preprocessed_path = tmp_path / "preprocessed.json"
     candidate_path = tmp_path / "candidate.json"
     original_path.write_text(json.dumps({
         "metrics/precision(B)": 0.95,
@@ -216,13 +216,18 @@ def test_official_comparison_can_exclude_obsolete_retrained_candidate(tmp_path):
         "metrics/mAP50(B)": 0.92,
         "metrics/mAP50-95(B)": 0.49,
     }))
-    median_path.write_text(json.dumps([{"id": "median", "model_id": "baseline"}]))
-    candidate_path.write_text(json.dumps([{"id": "obsolete_candidate", "model_id": "retrained_median_candidate"}]))
+    preprocessed_path.write_text(json.dumps([{
+        "id": "baseline_wavelet_homomorphic",
+        "model_id": "baseline",
+        "module": "member2",
+        "technique": "wavelet_homomorphic",
+    }]))
+    candidate_path.write_text(json.dumps([{"id": "unrequested_candidate", "model_id": "retrained_candidate"}]))
 
-    output = build_official_test_comparison(tmp_path / "official", original_path, median_path, None)
+    output = build_official_test_comparison(tmp_path / "official", original_path, preprocessed_path, None)
     records = json.loads(output.read_text())
 
-    assert [record["id"] for record in records] == ["baseline_original_test", "median"]
+    assert [record["id"] for record in records] == ["baseline_original_test", "baseline_wavelet_homomorphic"]
 
 
 def test_format_parameters_is_readable_for_long_parameter_sets():
@@ -273,7 +278,6 @@ def test_streamlit_exposes_extra_effort_sections_and_frozen_protocol():
 def test_streamlit_does_not_reference_removed_retrained_model():
     source = Path("scripts/streamlit_dashboard.py").read_text(encoding="utf-8")
 
-    assert "retrained_median_candidate" not in source
     assert 'record.get("model_id") == "final"' not in source
 
 
