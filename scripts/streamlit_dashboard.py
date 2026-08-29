@@ -52,6 +52,7 @@ INFERENCE_IMGSZ = 1024
 INFERENCE_CONF = 0.25
 INFERENCE_IOU = 0.70
 INFERENCE_MAX_SIDE = 1280
+IMAGE_UPLOAD_VERSION_KEY = "image_inference_uploader_version"
 
 
 def _load_records(path: Path) -> list[dict]:
@@ -332,6 +333,16 @@ def _update_progress(progress, done: int, total: int, label: str) -> None:
         progress.progress(fraction, text=f"Processing {label} {done}/{total}")
     else:
         progress.progress(0.0, text=f"Processing {label} {done}")
+
+
+def _image_upload_key(st) -> str:
+    version = int(st.session_state.get(IMAGE_UPLOAD_VERSION_KEY, 0))
+    return f"image_inference_uploads_{version}"
+
+
+def _clear_image_uploads(st) -> None:
+    current_version = int(st.session_state.get(IMAGE_UPLOAD_VERSION_KEY, 0))
+    st.session_state[IMAGE_UPLOAD_VERSION_KEY] = current_version + 1
 
 
 def _detect(model, image: np.ndarray) -> tuple[np.ndarray, int]:
@@ -722,8 +733,11 @@ def _render_inference_mode(st, records: list[dict]) -> None:
         "Upload PCB images or one ZIP folder",
         type=["jpg", "jpeg", "png", "zip"],
         accept_multiple_files=True,
-        key="image_inference_uploads",
+        key=_image_upload_key(st),
     )
+    if uploads and st.button("Clear all", key="clear_image_uploads"):
+        _clear_image_uploads(st)
+        st.rerun()
     if uploads and st.button("Run detection on uploaded images", key="run_inference"):
         image_entries, skipped = extract_image_entries(
             [(upload.name, upload.getvalue()) for upload in uploads]

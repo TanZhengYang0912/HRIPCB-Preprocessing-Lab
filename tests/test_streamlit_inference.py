@@ -20,6 +20,20 @@ class _StreamlitStub:
         return [_Column(self.calls) for _ in range(count)]
 
 
+def test_clear_image_uploads_advances_uploader_key():
+    class Streamlit:
+        session_state = {}
+
+    streamlit = Streamlit()
+
+    assert dashboard._image_upload_key(streamlit) == "image_inference_uploads_0"
+
+    dashboard._clear_image_uploads(streamlit)
+
+    assert streamlit.session_state["image_inference_uploader_version"] == 1
+    assert dashboard._image_upload_key(streamlit) == "image_inference_uploads_1"
+
+
 def test_progress_update_reports_batch_position():
     class Progress:
         def __init__(self):
