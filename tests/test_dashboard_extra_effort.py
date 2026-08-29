@@ -163,6 +163,50 @@ def test_analysis_payload_contains_original_and_four_combined_winners():
     assert payload["metric_comparison"][0]["technique"] == "Gaussian + BBHE"
 
 
+def test_analysis_primary_comparison_and_graph_are_ranked_by_map50_95():
+    records = [
+        {
+            "id": "original",
+            "model_id": "baseline",
+            "module": "member1",
+            "technique": "original",
+            "split": "val",
+            "evaluation_type": "ablation",
+            "metrics": {"map50_95": 0.5151},
+        },
+        {
+            "id": "member1_combined",
+            "model_id": "baseline",
+            "module": "member1",
+            "technique": "gaussian_bbhe",
+            "split": "val",
+            "evaluation_type": "ablation",
+            "metrics": {"map50_95": 0.5109},
+        },
+        {
+            "id": "member2_combined",
+            "model_id": "baseline",
+            "module": "member2",
+            "technique": "wavelet_homomorphic",
+            "split": "val",
+            "evaluation_type": "ablation",
+            "metrics": {"map50_95": 0.5171},
+        },
+    ]
+
+    payload = build_analysis_payload(records)
+
+    assert [row["id"] for row in payload["original_vs_combined"]] == [
+        "member2_combined",
+        "original",
+        "member1_combined",
+    ]
+    assert [row["id"] for row in payload["metric_comparison"]] == [
+        "member2_combined",
+        "member1_combined",
+    ]
+
+
 def test_build_report_pdf_contains_a_real_pdf_header():
     records = [{
         "id": "member2_wavelet_sym4",

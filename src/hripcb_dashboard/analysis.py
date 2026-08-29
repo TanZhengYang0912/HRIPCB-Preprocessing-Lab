@@ -121,6 +121,10 @@ def build_analysis_payload(records: Iterable[Mapping[str, object]]) -> dict:
         )
         for record in combined_winner_records
     )
+    original_vs_combined.sort(
+        key=lambda row: (row["map50_95"], row["id"]),
+        reverse=True,
+    )
 
     metric_comparison = [
         {
@@ -132,6 +136,10 @@ def build_analysis_payload(records: Iterable[Mapping[str, object]]) -> dict:
         }
         for record in combined_winner_records
     ]
+    metric_comparison.sort(
+        key=lambda row: (row["map50_95"], row["id"]),
+        reverse=True,
+    )
 
     stage_comparison = []
     for module, (noise_technique, contrast_technique) in MEMBER_TECHNIQUES.items():
