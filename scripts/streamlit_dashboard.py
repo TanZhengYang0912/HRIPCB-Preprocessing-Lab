@@ -323,6 +323,31 @@ def _detect(model, image: np.ndarray) -> tuple[np.ndarray, int]:
     return cv2.cvtColor(plotted, cv2.COLOR_BGR2RGB), count
 
 
+def _run_inference_pair(model, original: np.ndarray, selected: dict) -> dict:
+    """Run the same model on the original and preprocessed versions of an image."""
+
+    original_model_result, original_model_detections = _detect(model, original.copy())
+    processed = apply_candidate(original, _candidate_from_record(selected))
+    result, preprocessed_detections = _detect(model, processed)
+    return {
+        "processed": processed,
+        "original_model_result": original_model_result,
+        "original_model_detections": original_model_detections,
+        "result": result,
+        "preprocessed_detections": preprocessed_detections,
+    }
+
+
+def _render_inference_visual_result(st, item: dict) -> None:
+    """Render original input and both same-model detection comparisons."""
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.image(item["original"], caption="Uploaded original", width="stretch")
+    c2.image(item["original_model_result"], caption="Original model detection", width="stretch")
+    c3.image(item["processed"], caption="After selected preprocessing", width="stretch")
+    c4.image(item["result"], caption="Preprocessed detection result", width="stretch")
+
+
 def _option_label(value: str) -> str:
     return "All" if value == "all" else value
 
@@ -682,23 +707,26 @@ def _render_inference_mode(st, records: list[dict]) -> None:
         for filename, payload in image_entries:
             try:
                 original = _decode_payload(filename, payload)
-                processed = apply_candidate(original, _candidate_from_record(selected))
-                plotted, count = _detect(model, processed)
+                inference = _run_inference_pair(model, original, selected)
             except (ValueError, cv2.error) as error:
                 st.error(f"{filename}: {error}")
                 continue
             summary.append({
                 "file": filename,
-                "detections": count,
+                "original_model_detections": inference["original_model_detections"],
+                "preprocessed_detections": inference["preprocessed_detections"],
+                "detections": inference["preprocessed_detections"],
                 "model": selected_model,
                 "experiment": selected["id"],
             })
             visual_results.append({
                 "file": filename,
-                "detections": count,
+                "original_model_detections": inference["original_model_detections"],
+                "preprocessed_detections": inference["preprocessed_detections"],
                 "original": cv2.cvtColor(original, cv2.COLOR_BGR2RGB),
-                "processed": cv2.cvtColor(processed, cv2.COLOR_BGR2RGB),
-                "result": plotted,
+                "processed": cv2.cvtColor(inference["processed"], cv2.COLOR_BGR2RGB),
+                "original_model_result": inference["original_model_result"],
+                "result": inference["result"],
             })
         if summary:
             st.dataframe(summary, width="stretch", hide_index=True)
@@ -711,11 +739,12 @@ def _render_inference_mode(st, records: list[dict]) -> None:
             )
         st.subheader("Visual results for every uploaded image")
         for index, item in enumerate(visual_results):
-            with st.expander(f"{item['file']} - {item['detections']} detections", expanded=index == 0):
-                c1, c2, c3 = st.columns(3)
-                c1.image(item["original"], caption="Uploaded original", width="stretch")
-                c2.image(item["processed"], caption="After selected preprocessing", width="stretch")
-                c3.image(item["result"], caption="YOLO detection result", width="stretch")
+            with st.expander(
+                f"{item['file']} - original model: {item['original_model_detections']} detections; "
+                f"preprocessed: {item['preprocessed_detections']} detections",
+                expanded=index == 0,
+            ):
+                _render_inference_visual_result(st, item)
 
 
 def _render_video_mode(st, records: list[dict]) -> None:
