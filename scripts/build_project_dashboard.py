@@ -38,16 +38,33 @@ def aggregate_results(runs_root: Path, output_root: Path) -> Path:
     runs_root = Path(runs_root).resolve()
     output_root = Path(output_root).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
+    existing_results = output_root / "results.json"
+    existing_records = (
+        json.loads(existing_results.read_text(encoding="utf-8"))
+        if existing_results.is_file()
+        else []
+    )
     records: list[dict] = []
     source_files: list[str] = []
-    sources = [(runs_root / f"{module}_validation_sweep", module) for module in MODULES]
+    replaced_modules: set[str] = set()
+    sources = [
+        (
+            runs_root / "member2_full_search"
+            if module == "member2" and (runs_root / "member2_full_search" / "results.json").is_file()
+            else runs_root / f"{module}_validation_sweep",
+            module,
+        )
+        for module in MODULES
+    ]
     official_test_dir = runs_root / "official_test_comparison"
     if (official_test_dir / "results.json").is_file():
         sources.append((official_test_dir, "official_test"))
-    for source_dir, _source_label in sources:
+    for source_dir, source_label in sources:
         source_file = source_dir / "results.json"
         if not source_file.is_file():
             continue
+        if source_label in MODULES:
+            replaced_modules.add(source_label)
         source_files.append(str(source_file))
         for record in json.loads(source_file.read_text(encoding="utf-8")):
             record = dict(record)
@@ -55,6 +72,10 @@ def aggregate_results(runs_root: Path, output_root: Path) -> Path:
                 record["preview"] = os.path.relpath(source_dir / record["preview"], output_root)
             record["source_run"] = str(source_dir)
             records.append(record)
+    records.extend(
+        record for record in existing_records
+        if record.get("module") not in replaced_modules
+    )
     if not records:
         raise FileNotFoundError("No member validation results found under runs/")
 

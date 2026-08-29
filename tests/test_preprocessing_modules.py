@@ -67,6 +67,34 @@ def test_member2_combined_applies_denoise_before_enhancement():
     assert np.array_equal(apply_candidate(image, combined), staged)
 
 
+def test_member2_homomorphic_candidate_applies_configured_sharpness():
+    image = _image()
+    config = {
+        "wavelet_presets": [],
+        "homomorphic_presets": [
+            {
+                "id": "sharp",
+                "gamma_low": 0.5,
+                "gamma_high": 1.5,
+                "cutoff": 30.0,
+                "sharpness": 2.0,
+            }
+        ],
+    }
+    candidate = build_candidates("member2", config)[1]
+
+    expected = apply_homomorphic_filter(
+        image,
+        gamma_low=0.5,
+        gamma_high=1.5,
+        cutoff=30.0,
+        sharpness=2.0,
+    )
+
+    assert candidate["parameters"]["homomorphic_sharpness"] == 2.0
+    assert np.array_equal(apply_candidate(image, candidate), expected)
+
+
 def test_member2_filters_reject_invalid_parameters():
     image = _image()
     with pytest.raises(ValueError):

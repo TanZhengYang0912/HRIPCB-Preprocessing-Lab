@@ -30,6 +30,20 @@ def _write_image(path: Path, image: np.ndarray, quality: int) -> None:
         raise OSError(f"Could not write image: {path}")
 
 
+def _prepared_image(
+    clean: np.ndarray,
+    path: Path,
+    candidate: dict,
+    reuse: bool,
+) -> np.ndarray:
+    if not reuse:
+        return apply_candidate(clean, candidate)
+    prepared = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if prepared is None:
+        raise FileNotFoundError(f"Prepared image not found: {path}")
+    return prepared
+
+
 def _metric_view(image: np.ndarray, max_side: int) -> np.ndarray:
     """Downsample only image-quality metrics; detector inputs stay full-size."""
 
@@ -99,6 +113,7 @@ def run_sweep(dataset_root: Path, output_root: Path, config: dict) -> Path:
     eval_data: dict[str, Path] = {}
     quality = int(config.get("jpeg_quality", 95))
     metrics_max_side = int(config.get("image_metrics_max_side", 256))
+    reuse_prepared = bool(config.get("reuse_prepared", False))
     data_config = Path(config["data_config"]).resolve()
     for index, candidate in enumerate(candidates, start=1):
         candidate_id = candidate["id"]
@@ -110,25 +125,29 @@ def run_sweep(dataset_root: Path, output_root: Path, config: dict) -> Path:
             clean = cv2.imread(str(source), cv2.IMREAD_COLOR)
             if clean is None:
                 raise OSError(f"Could not read image: {source}")
-            processed = apply_candidate(clean, candidate)
+            image_path = output_root / "variants" / candidate_id / "images" / source.name
+            processed = _prepared_image(clean, image_path, candidate, reuse_prepared)
             metric_clean = _metric_view(clean, metrics_max_side)
             metric_processed = _metric_view(processed, metrics_max_side)
             psnr_values.append(calculate_psnr(metric_clean, metric_processed))
             ssim_values.append(calculate_ssim(metric_clean, metric_processed))
             if source.name == sample:
                 preview_image = processed
-            image_path = output_root / "variants" / candidate_id / "images" / source.name
-            if candidate["technique"] == "original":
-                image_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, image_path)
-            else:
-                _write_image(image_path, processed, quality)
+            if not reuse_prepared:
+                if candidate["technique"] == "original":
+                    image_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, image_path)
+                else:
+                    _write_image(image_path, processed, quality)
             source_label = dataset_root / config["split"] / "labels" / f"{source.stem}.txt"
             if not source_label.is_file():
                 raise FileNotFoundError(f"Label file not found: {source_label}")
             label_path = output_root / "variants" / candidate_id / "labels" / source_label.name
-            label_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_label, label_path)
+            if not reuse_prepared:
+                label_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_label, label_path)
+            elif not label_path.is_file():
+                raise FileNotFoundError(f"Prepared label not found: {label_path}")
         if preview_image is None:
             raise RuntimeError(f"No preview image generated for {candidate_id}")
         preview_path = output_root / "previews" / f"{candidate_id}.jpg"

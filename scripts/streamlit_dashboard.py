@@ -471,6 +471,24 @@ def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer"
     cards[2].metric("Module", recommended.get("module", "—"))
     cards[3].metric("Technique", recommended.get("technique", "—"))
     st.caption(f"Parameters: {json.dumps(recommended.get('parameters', {}), sort_keys=True)}")
+
+    member2 = next(
+        (row for row in best_by_module(records) if row.get("module") == "member2"),
+        None,
+    )
+    if member2:
+        parameters = member2.get("parameters", {})
+        level = parameters.get("wavelet_levels")
+        st.info(
+            "Member 2 final assignment preset (Wavelet → Homomorphic): "
+            f"{parameters.get('wavelet_name')} / {parameters.get('wavelet_method')} / "
+            f"{parameters.get('wavelet_mode')} / level {'auto' if level is None else level}; "
+            f"γL={parameters.get('homomorphic_gamma_low')}, "
+            f"γH={parameters.get('homomorphic_gamma_high')}, "
+            f"cutoff={parameters.get('homomorphic_cutoff')}, "
+            f"sharpness={parameters.get('homomorphic_sharpness')}; "
+            f"validation mAP50-95={_metric_value(member2, 'map50_95'):.4f}."
+        )
     if st.button("Use recommended experiment", key=f"use_recommended_{key_prefix}"):
         model_key, module_key, technique_key = inference_widget_keys(key_prefix)
         st.session_state[model_key] = recommended.get("model_id", "baseline")

@@ -40,6 +40,7 @@ def _homomorphic_parameters(preset: dict) -> dict:
         "homomorphic_gamma_low": float(preset.get("gamma_low", 0.5)),
         "homomorphic_gamma_high": float(preset.get("gamma_high", 1.5)),
         "homomorphic_cutoff": float(preset.get("cutoff", 30.0)),
+        "homomorphic_sharpness": float(preset.get("sharpness", 1.0)),
     }
 
 
@@ -59,6 +60,7 @@ def _apply_homomorphic(image, parameters: dict):
         gamma_low=float(parameters["homomorphic_gamma_low"]),
         gamma_high=float(parameters["homomorphic_gamma_high"]),
         cutoff=float(parameters["homomorphic_cutoff"]),
+        sharpness=float(parameters.get("homomorphic_sharpness", 1.0)),
     )
 
 

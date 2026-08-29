@@ -158,11 +158,11 @@ Each sweep changes only preprocessing parameters:
 | Module | Candidate parameters |
 |---|---|
 | member1 | Gaussian kernel `5, 7, 9`; sigmaX `1.0, 1.5, 2.0`; BBHE strength `0.25, 0.5, 0.7, 1.0` |
-| member2 | Wavelets `db1` and `sym4`; BayesShrink/VisuShrink with soft thresholding; homomorphic `(gamma low, gamma high, cutoff)` presets `(0.5, 1.5, 30)`, `(0.7, 1.3, 50)`, `(0.8, 1.2, 80)` |
+| member2 | Final required sequence: Wavelet `coif2`, VisuShrink, soft threshold, automatic level; then Homomorphic `gamma_low=0.7`, `gamma_high=1.3`, `cutoff=20`, `sharpness=2.0` |
 | member3 | Bilateral diameter `5, 7, 9`; sigma colour `25, 50, 75`; AGCWD gamma `0.8, 1.0, 1.2` |
 | member4 | NLM `h=3, 7, 10`; MSR scales `(15, 25, 2)`, `(15, 50, 150)`, `(20, 80, 160)` |
 
-Member 2's highest current validation result is `wavelet_w_sym4` with `mAP50-95=0.5179`. The best current combined Member 2 result is `wavelet_w_visu_homomorphic_h_c30` with `mAP50-95=0.4832`. These are validation results for parameter selection, not final test scores.
+Member 2's required combined winner is `wavelet_stage1_winner_homomorphic_gl0p7_gh1p3_c20p0_s2p0` with validation `mAP50-95=0.5171`. It applies Wavelet before Homomorphic and uses both required techniques. This is a validation result for parameter selection, not a final test score.
 
 ## 8. Dashboard, Sorting and Reports
 
@@ -210,7 +210,7 @@ Current saved official test reference results:
 |---|---:|---:|---:|---:|
 | Baseline YOLO + original | 0.4890 | 0.9515 | 0.9233 | 0.9372 |
 
-The current validation evidence shows that Wavelet `sym4` improves on the original input with the frozen baseline checkpoint. The combined Wavelet + Homomorphic candidate still requires an official frozen test run before a new test score can be reported. The active prototype does not label the single Wavelet result as a final model because it does not satisfy the two-technique project requirement.
+The selected Member 2 prototype is the scanned Wavelet `coif2` + Homomorphic combination (`gamma_low=0.7`, `gamma_high=1.3`, `cutoff=20`, `sharpness=2.0`). The single Wavelet result scored higher in isolation, but it is not the final Member 2 choice because the assignment requires both techniques. The combined candidate still requires an official frozen test run before a new test score can be reported.
 
 ## 10. Image, ZIP and Video Testing
 

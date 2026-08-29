@@ -1,0 +1,31 @@
+module: member2
+dataset: HRIPCB_UPDATE
+split: val
+checkpoint: runs/baseline/weights/best.pt
+data_config: configs/hripcb_local.yaml
+imgsz: 1024
+conf: 0.25
+iou: 0.7
+device: auto
+workers: 0
+jpeg_quality: 95
+image_metrics_max_side: 256
+primary_metric: map50_95
+model_id: baseline
+model_label: Baseline YOLO
+training_preprocessing: original
+evaluation_type: ablation
+top_wavelets: 2
+coarse_wavelets:
+  - {id: db1, wavelet: db1, method: BayesShrink, mode: soft}
+  - {id: db2, wavelet: db2, method: BayesShrink, mode: soft}
+  - {id: db4, wavelet: db4, method: BayesShrink, mode: soft}
+  - {id: sym2, wavelet: sym2, method: BayesShrink, mode: soft}
+  - {id: sym4, wavelet: sym4, method: BayesShrink, mode: soft}
+  - {id: sym6, wavelet: sym6, method: BayesShrink, mode: soft}
+  - {id: coif1, wavelet: coif1, method: BayesShrink, mode: soft}
+  - {id: coif2, wavelet: coif2, method: BayesShrink, mode: soft}
+refinement:
+  methods: [BayesShrink, VisuShrink]
+  modes: [soft, hard]
+  levels: [null, 1, 2, 3, 4]

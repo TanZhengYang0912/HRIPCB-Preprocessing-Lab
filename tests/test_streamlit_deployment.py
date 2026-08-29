@@ -28,4 +28,4 @@ def test_default_results_path_is_project_relative(monkeypatch, tmp_path):
     resolved = dashboard._resolve_results_path(Path("runs/project_validation_comparison/results.json"))
 
     assert resolved == dashboard.PROJECT_ROOT / "runs/project_validation_comparison/results.json"
-    assert len(dashboard._load_records(resolved)) == 69
+    assert len(dashboard._load_records(resolved)) == 127

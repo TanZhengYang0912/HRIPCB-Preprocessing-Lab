@@ -66,6 +66,7 @@ def evaluate(args: argparse.Namespace) -> Path:
             "homomorphic_gamma_low": args.homomorphic_gamma_low,
             "homomorphic_gamma_high": args.homomorphic_gamma_high,
             "homomorphic_cutoff": args.homomorphic_cutoff,
+            "homomorphic_sharpness": args.homomorphic_sharpness,
         },
         "metrics": {
             "precision": precision,
@@ -89,7 +90,7 @@ def evaluate(args: argparse.Namespace) -> Path:
     return output / "results.json"
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, default=Path("runs/retrained_wavelet_homomorphic_candidate/weights/best.pt"))
     parser.add_argument("--data", type=Path, default=Path("runs/retrained_wavelet_homomorphic_dataset/data.yaml"))
@@ -107,15 +108,20 @@ def main() -> int:
     parser.add_argument("--training-preprocessing", default="wavelet_homomorphic")
     parser.add_argument("--evaluation-preprocessing", default="wavelet_homomorphic")
     parser.add_argument("--evaluation-type", default="retrained_candidate")
-    parser.add_argument("--wavelet-name", default="sym4")
+    parser.add_argument("--wavelet-name", default="coif2")
     parser.add_argument("--wavelet-method", default="VisuShrink")
     parser.add_argument("--wavelet-mode", default="soft")
-    parser.add_argument("--wavelet-levels", type=int, default=2)
-    parser.add_argument("--homomorphic-gamma-low", type=float, default=0.5)
-    parser.add_argument("--homomorphic-gamma-high", type=float, default=1.5)
-    parser.add_argument("--homomorphic-cutoff", type=float, default=30.0)
+    parser.add_argument("--wavelet-levels", type=int, default=None)
+    parser.add_argument("--homomorphic-gamma-low", type=float, default=0.7)
+    parser.add_argument("--homomorphic-gamma-high", type=float, default=1.3)
+    parser.add_argument("--homomorphic-cutoff", type=float, default=20.0)
+    parser.add_argument("--homomorphic-sharpness", type=float, default=2.0)
     parser.add_argument("--record-id", default="")
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main() -> int:
+    args = parse_args()
     print(f"retrained candidate evaluation: {evaluate(args)}")
     return 0
 

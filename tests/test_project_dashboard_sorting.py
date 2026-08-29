@@ -37,6 +37,78 @@ def test_project_aggregate_does_not_resurrect_retired_member2_results(tmp_path):
     assert [row["id"] for row in rows] == ["member1_original"]
 
 
+def test_project_aggregate_prefers_member2_full_search_results(tmp_path):
+    runs_root = tmp_path / "runs"
+    old_dir = runs_root / "member2_validation_sweep"
+    full_dir = runs_root / "member2_full_search"
+    old_dir.mkdir(parents=True)
+    full_dir.mkdir(parents=True)
+    (old_dir / "results.json").write_text(json.dumps([{
+        "id": "old_member2_combined",
+        "module": "member2",
+        "technique": "wavelet_homomorphic",
+        "split": "val",
+        "evaluation_type": "ablation",
+        "metrics": {"map50_95": 0.48},
+    }]))
+    (full_dir / "results.json").write_text(json.dumps([{
+        "id": "scanned_member2_combined",
+        "module": "member2",
+        "technique": "wavelet_homomorphic",
+        "split": "val",
+        "evaluation_type": "ablation",
+        "parameters": {
+            "wavelet_name": "coif2",
+            "homomorphic_cutoff": 20.0,
+        },
+        "metrics": {"map50_95": 0.5170690040261036},
+    }]))
+
+    aggregate_results(runs_root, tmp_path / "output")
+    rows = json.loads((tmp_path / "output" / "results.json").read_text())
+
+    assert [row["id"] for row in rows] == ["scanned_member2_combined"]
+
+
+def test_project_aggregate_preserves_existing_modules_without_local_sweeps(tmp_path):
+    runs_root = tmp_path / "runs"
+    full_dir = runs_root / "member2_full_search"
+    output_dir = tmp_path / "output"
+    full_dir.mkdir(parents=True)
+    output_dir.mkdir(parents=True)
+    (full_dir / "results.json").write_text(json.dumps([{
+        "id": "original",
+        "module": "member2",
+        "technique": "wavelet_homomorphic",
+        "split": "val",
+        "evaluation_type": "ablation",
+        "metrics": {"map50_95": 0.517},
+    }]))
+    (output_dir / "results.json").write_text(json.dumps([{
+        "id": "original",
+        "module": "member1",
+        "technique": "gaussian_bbhe",
+        "split": "val",
+        "evaluation_type": "ablation",
+        "metrics": {"map50_95": 0.51},
+    }, {
+        "id": "old_member2",
+        "module": "member2",
+        "technique": "wavelet_homomorphic",
+        "split": "val",
+        "evaluation_type": "ablation",
+        "metrics": {"map50_95": 0.48},
+    }]))
+
+    aggregate_results(runs_root, output_dir)
+    rows = json.loads((output_dir / "results.json").read_text())
+
+    assert {(row["module"], row["id"]) for row in rows} == {
+        ("member1", "original"),
+        ("member2", "original"),
+    }
+
+
 def test_dashboard_contains_model_and_metric_sorting_controls(tmp_path):
     records = [
         {
