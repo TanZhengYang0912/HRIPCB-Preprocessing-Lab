@@ -92,7 +92,7 @@ def test_inference_pair_limits_working_image_size(monkeypatch):
         {"module": "member2", "technique": "original", "parameters": {}},
     )
 
-    assert detected_shapes == [(1200, 1600, 3), (1200, 1600, 3)]
+    assert detected_shapes == [(960, 1280, 3), (960, 1280, 3)]
 
 
 def test_render_inference_result_shows_original_and_preprocessed_detections():
