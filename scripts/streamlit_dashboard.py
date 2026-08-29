@@ -51,6 +51,7 @@ METRIC_LABELS = {
 INFERENCE_IMGSZ = 1024
 INFERENCE_CONF = 0.25
 INFERENCE_IOU = 0.70
+INFERENCE_MAX_SIDE = 1600
 
 
 def _load_records(path: Path) -> list[dict]:
@@ -309,25 +310,44 @@ def _decode_payload(name: str, payload: bytes) -> np.ndarray:
     return image
 
 
+def _resize_for_inference(image: np.ndarray) -> np.ndarray:
+    """Keep paired inference and preprocessing within the hosted app memory budget."""
+
+    longest_side = max(image.shape[:2])
+    if longest_side <= INFERENCE_MAX_SIDE:
+        return image.copy()
+    scale = INFERENCE_MAX_SIDE / longest_side
+    size = (
+        max(1, round(image.shape[1] * scale)),
+        max(1, round(image.shape[0] * scale)),
+    )
+    return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
+
+
 def _detect(model, image: np.ndarray) -> tuple[np.ndarray, int]:
-    result = model.predict(
+    prediction_stream = model.predict(
         source=image,
         imgsz=INFERENCE_IMGSZ,
         conf=INFERENCE_CONF,
         iou=INFERENCE_IOU,
         device=select_device("auto"),
         verbose=False,
-    )[0]
+        stream=True,
+    )
+    result = next(iter(prediction_stream))
     plotted = result.plot()
     count = int(len(result.boxes)) if result.boxes is not None else 0
-    return cv2.cvtColor(plotted, cv2.COLOR_BGR2RGB), count
+    output = cv2.cvtColor(plotted, cv2.COLOR_BGR2RGB)
+    del prediction_stream, result, plotted
+    return output, count
 
 
 def _run_inference_pair(model, original: np.ndarray, selected: dict) -> dict:
     """Run the same model on the original and preprocessed versions of an image."""
 
-    original_model_result, original_model_detections = _detect(model, original.copy())
-    processed = apply_candidate(original, _candidate_from_record(selected))
+    working = _resize_for_inference(original)
+    original_model_result, original_model_detections = _detect(model, working)
+    processed = apply_candidate(working, _candidate_from_record(selected))
     result, preprocessed_detections = _detect(model, processed)
     return {
         "processed": processed,

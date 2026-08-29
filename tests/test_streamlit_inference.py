@@ -49,6 +49,52 @@ def test_inference_pair_runs_original_model_before_preprocessed_model(monkeypatc
     assert result["preprocessed_detections"] == 3
 
 
+def test_detect_uses_streaming_prediction_to_bound_memory(monkeypatch):
+    image = np.zeros((6, 8, 3), dtype=np.uint8)
+    calls = []
+
+    class Result:
+        boxes = [object()]
+
+        def plot(self):
+            return image.copy()
+
+    class Model:
+        def predict(self, **kwargs):
+            calls.append(kwargs)
+            if kwargs.get("stream") is not True:
+                raise AssertionError("inference must use stream=True")
+            return iter([Result()])
+
+    monkeypatch.setattr(dashboard, "select_device", lambda value: "cpu")
+
+    plotted, detections = dashboard._detect(Model(), image)
+
+    assert detections == 1
+    assert plotted.shape == image.shape
+    assert calls[0]["stream"] is True
+
+
+def test_inference_pair_limits_working_image_size(monkeypatch):
+    image = np.zeros((2400, 3200, 3), dtype=np.uint8)
+    detected_shapes = []
+
+    def fake_detect(model, input_image):
+        detected_shapes.append(input_image.shape)
+        return input_image.copy(), 0
+
+    monkeypatch.setattr(dashboard, "_detect", fake_detect)
+    monkeypatch.setattr(dashboard, "apply_candidate", lambda input_image, candidate: input_image.copy())
+
+    dashboard._run_inference_pair(
+        object(),
+        image,
+        {"module": "member2", "technique": "original", "parameters": {}},
+    )
+
+    assert detected_shapes == [(1200, 1600, 3), (1200, 1600, 3)]
+
+
 def test_render_inference_result_shows_original_and_preprocessed_detections():
     streamlit = _StreamlitStub()
     item = {
