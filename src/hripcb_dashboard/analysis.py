@@ -184,3 +184,26 @@ def build_analysis_payload(records: Iterable[Mapping[str, object]]) -> dict:
         "parameter_sensitivity": sensitivity,
         "retrained_vs_baseline": retrained_vs_baseline,
     }
+
+
+def detection_comparison_row(
+    file_name: str,
+    original_count: int,
+    processed_count: int,
+    model_id: str,
+    experiment_id: str,
+) -> dict[str, str | int]:
+    """Build one summary row comparing detections before and after preprocessing."""
+
+    original_count = int(original_count)
+    processed_count = int(processed_count)
+    difference = processed_count - original_count
+    change = "0" if difference == 0 else f"{difference:+d}"
+    return {
+        "file": str(file_name),
+        "original": original_count,
+        "processed": processed_count,
+        "change": change,
+        "model": str(model_id),
+        "experiment": str(experiment_id),
+    }

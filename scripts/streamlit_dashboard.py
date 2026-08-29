@@ -19,7 +19,12 @@ DEFAULT_RESULTS_PATH = PROJECT_ROOT / "runs/project_validation_comparison/result
 
 from hripcb_member1.evaluation import select_device
 from hripcb_dashboard.batch import extract_image_entries
-from hripcb_dashboard.analysis import MEMBER_TECHNIQUES, build_analysis_payload, technique_label
+from hripcb_dashboard.analysis import (
+    MEMBER_TECHNIQUES,
+    build_analysis_payload,
+    detection_comparison_row,
+    technique_label,
+)
 from hripcb_dashboard.reporting import build_report_pdf, dumps_json, record_metric_summary
 from hripcb_dashboard.video import process_video
 from hripcb_preprocessing.candidates import apply_candidate
@@ -682,23 +687,29 @@ def _render_inference_mode(st, records: list[dict]) -> None:
         for filename, payload in image_entries:
             try:
                 original = _decode_payload(filename, payload)
+                original_plotted, original_count = _detect(model, original)
                 processed = apply_candidate(original, _candidate_from_record(selected))
-                plotted, count = _detect(model, processed)
+                processed_plotted, processed_count = _detect(model, processed)
             except (ValueError, cv2.error) as error:
                 st.error(f"{filename}: {error}")
                 continue
-            summary.append({
-                "file": filename,
-                "detections": count,
-                "model": selected_model,
-                "experiment": selected["id"],
-            })
+            summary.append(
+                detection_comparison_row(
+                    filename,
+                    original_count,
+                    processed_count,
+                    selected_model,
+                    selected["id"],
+                )
+            )
             visual_results.append({
                 "file": filename,
-                "detections": count,
+                "original_count": original_count,
+                "processed_count": processed_count,
                 "original": cv2.cvtColor(original, cv2.COLOR_BGR2RGB),
                 "processed": cv2.cvtColor(processed, cv2.COLOR_BGR2RGB),
-                "result": plotted,
+                "original_result": original_plotted,
+                "processed_result": processed_plotted,
             })
         if summary:
             st.dataframe(summary, width="stretch", hide_index=True)
@@ -711,11 +722,21 @@ def _render_inference_mode(st, records: list[dict]) -> None:
             )
         st.subheader("Visual results for every uploaded image")
         for index, item in enumerate(visual_results):
-            with st.expander(f"{item['file']} - {item['detections']} detections", expanded=index == 0):
-                c1, c2, c3 = st.columns(3)
-                c1.image(item["original"], caption="Uploaded original", width="stretch")
-                c2.image(item["processed"], caption="After selected preprocessing", width="stretch")
-                c3.image(item["result"], caption="YOLO detection result", width="stretch")
+            header = (
+                f"{item['file']} - original {item['original_count']} detections, "
+                f"after preprocessing {item['processed_count']} detections"
+            )
+            with st.expander(header, expanded=index == 0):
+                top_left, top_right = st.columns(2)
+                top_left.image(item["original"], caption="Uploaded original", width="stretch")
+                top_right.image(item["original_result"], caption="Detection on original", width="stretch")
+                bottom_left, bottom_right = st.columns(2)
+                bottom_left.image(item["processed"], caption="After selected preprocessing", width="stretch")
+                bottom_right.image(
+                    item["processed_result"],
+                    caption="Detection after preprocessing",
+                    width="stretch",
+                )
 
 
 def _render_video_mode(st, records: list[dict]) -> None:
