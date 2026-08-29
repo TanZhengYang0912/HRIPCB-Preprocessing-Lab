@@ -20,6 +20,25 @@ class _StreamlitStub:
         return [_Column(self.calls) for _ in range(count)]
 
 
+def test_progress_update_reports_batch_position():
+    class Progress:
+        def __init__(self):
+            self.calls = []
+
+        def progress(self, value, *, text):
+            self.calls.append((value, text))
+
+    progress = Progress()
+
+    dashboard._update_progress(progress, 3, 10, "image")
+    dashboard._update_progress(progress, 10, 10, "image")
+
+    assert progress.calls == [
+        (0.3, "Processing image 3/10"),
+        (1.0, "Processing image 10/10"),
+    ]
+
+
 def test_inference_pair_runs_original_model_before_preprocessed_model(monkeypatch):
     image = np.zeros((6, 8, 3), dtype=np.uint8)
     calls = []

@@ -324,6 +324,16 @@ def _resize_for_inference(image: np.ndarray) -> np.ndarray:
     return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
 
 
+def _update_progress(progress, done: int, total: int, label: str) -> None:
+    """Show a bounded progress fraction and a human-readable batch position."""
+
+    if total > 0:
+        fraction = min(max(done / total, 0.0), 1.0)
+        progress.progress(fraction, text=f"Processing {label} {done}/{total}")
+    else:
+        progress.progress(0.0, text=f"Processing {label} {done}")
+
+
 def _detect(model, image: np.ndarray) -> tuple[np.ndarray, int]:
     prediction_stream = model.predict(
         source=image,
@@ -721,33 +731,39 @@ def _render_inference_mode(st, records: list[dict]) -> None:
         if skipped:
             st.warning("Some files were skipped:\n\n" + "\n".join(f"- {message}" for message in skipped))
         st.info(f"Prepared {len(image_entries)} image(s) for detection; skipped {len(skipped)} file(s).")
+        total_images = len(image_entries)
+        progress = st.progress(0.0, text=f"Loading YOLO model for {total_images} image(s)...")
         model = _load_model(str(selected_checkpoint))
+        progress.progress(0.0, text=f"Processing image 0/{total_images}")
         summary = []
         visual_results = []
-        for filename, payload in image_entries:
+        for index, (filename, payload) in enumerate(image_entries, start=1):
             try:
                 original = _decode_payload(filename, payload)
                 inference = _run_inference_pair(model, original, selected)
             except (ValueError, cv2.error) as error:
                 st.error(f"{filename}: {error}")
-                continue
-            summary.append({
-                "file": filename,
-                "original_model_detections": inference["original_model_detections"],
-                "preprocessed_detections": inference["preprocessed_detections"],
-                "detections": inference["preprocessed_detections"],
-                "model": selected_model,
-                "experiment": selected["id"],
-            })
-            visual_results.append({
-                "file": filename,
-                "original_model_detections": inference["original_model_detections"],
-                "preprocessed_detections": inference["preprocessed_detections"],
-                "original": cv2.cvtColor(original, cv2.COLOR_BGR2RGB),
-                "processed": cv2.cvtColor(inference["processed"], cv2.COLOR_BGR2RGB),
-                "original_model_result": inference["original_model_result"],
-                "result": inference["result"],
-            })
+            else:
+                summary.append({
+                    "file": filename,
+                    "original_model_detections": inference["original_model_detections"],
+                    "preprocessed_detections": inference["preprocessed_detections"],
+                    "detections": inference["preprocessed_detections"],
+                    "model": selected_model,
+                    "experiment": selected["id"],
+                })
+                visual_results.append({
+                    "file": filename,
+                    "original_model_detections": inference["original_model_detections"],
+                    "preprocessed_detections": inference["preprocessed_detections"],
+                    "original": cv2.cvtColor(original, cv2.COLOR_BGR2RGB),
+                    "processed": cv2.cvtColor(inference["processed"], cv2.COLOR_BGR2RGB),
+                    "original_model_result": inference["original_model_result"],
+                    "result": inference["result"],
+                })
+            finally:
+                _update_progress(progress, index, total_images, "image")
+        progress.progress(1.0, text=f"Image detection complete: {len(summary)}/{total_images} succeeded")
         if summary:
             st.dataframe(summary, width="stretch", hide_index=True)
             st.download_button(
@@ -801,17 +817,17 @@ def _render_video_mode(st, records: list[dict]) -> None:
         key="video_inference_upload",
     )
     if video and st.button("Run video detection", key="run_video_detection"):
-        model = _load_model(str(checkpoint))
-        progress = st.progress(0, text="Preparing video...")
+        progress = st.progress(0.0, text="Loading YOLO model...")
         try:
+            model = _load_model(str(checkpoint))
+            progress.progress(0.0, text="Preparing video...")
             with tempfile.TemporaryDirectory(prefix="hripcb_video_") as temp_dir:
                 input_path = Path(temp_dir) / video.name
                 output_path = Path(temp_dir) / "annotated_output.mp4"
                 input_path.write_bytes(video.getvalue())
 
                 def update_progress(done: int, total: int) -> None:
-                    if total > 0:
-                        progress.progress(min(done / total, 1.0), text=f"Processing frame {done}/{total}")
+                    _update_progress(progress, done, total, "frame")
 
                 summary = process_video(
                     input_path,
@@ -824,6 +840,7 @@ def _render_video_mode(st, records: list[dict]) -> None:
                     device=select_device("auto"),
                     progress_callback=update_progress,
                 )
+                progress.progress(0.99, text="Finalizing video preview...")
                 output_bytes = output_path.read_bytes()
             progress.progress(1.0, text="Video processing complete")
         except (ValueError, cv2.error) as error:
