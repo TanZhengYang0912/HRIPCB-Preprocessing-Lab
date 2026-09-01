@@ -16,6 +16,7 @@ build/
 venv/
 env/
 ENV/
+.worktrees/
 .env
 .env.*
 !.env.example
