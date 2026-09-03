@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from numbers import Real
+
+import numpy as np
+
 from .filters import (
     apply_agcwd,
     apply_bilateral_filter,
     apply_homomorphic_filter,
     apply_multi_scale_retinex,
     apply_non_local_means,
+    apply_top_black_hat,
+    apply_tv_denoise,
+    apply_tv_top_black_hat,
     apply_wavelet_denoise,
 )
 
@@ -44,6 +52,80 @@ def _homomorphic_parameters(preset: dict) -> dict:
     }
 
 
+MEMBER5_GRID_KEYS = (
+    "tv_weights",
+    "morphology_kernel_sizes",
+    "top_hat_amounts",
+    "black_hat_amounts",
+)
+
+
+def _member5_grid_values(config: Mapping, key: str) -> list:
+    if key not in config:
+        raise ValueError(f"member5 config is missing {key}")
+    values = config[key]
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        raise ValueError(f"{key} must be a non-empty sequence")
+    values = list(values)
+    if not values:
+        raise ValueError(f"{key} must be a non-empty sequence")
+    return values
+
+
+def _member5_finite_number(value, key: str, index: int) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise ValueError(f"{key}[{index}] must be a finite real number")
+    try:
+        result = float(value)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(f"{key}[{index}] must be a finite real number") from error
+    if not np.isfinite(result):
+        raise ValueError(f"{key}[{index}] must be a finite real number")
+    return result
+
+
+def _member5_float_grid(config: Mapping, key: str) -> list[float]:
+    values = _member5_grid_values(config, key)
+    normalized = [_member5_finite_number(value, key, index) for index, value in enumerate(values)]
+    for index, value in enumerate(normalized):
+        if value <= 0:
+            raise ValueError(f"{key}[{index}] must be positive")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"{key} contains duplicate values")
+    return normalized
+
+
+def _member5_kernel_grid(config: Mapping) -> list[int]:
+    key = "morphology_kernel_sizes"
+    values = _member5_grid_values(config, key)
+    normalized: list[int] = []
+    for index, value in enumerate(values):
+        numeric = _member5_finite_number(value, key, index)
+        if not numeric.is_integer() or numeric <= 0 or int(numeric) % 2 == 0:
+            raise ValueError(f"{key}[{index}] must be a positive odd integer")
+        normalized.append(int(numeric))
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"{key} contains duplicate values")
+    return normalized
+
+
+def validate_member5_config(config: Mapping) -> dict[str, list]:
+    """Validate and normalize the four Member 5 search grids before processing."""
+
+    if not isinstance(config, Mapping):
+        raise ValueError("member5 config must be a mapping")
+    return {
+        "tv_weights": _member5_float_grid(config, "tv_weights"),
+        "morphology_kernel_sizes": _member5_kernel_grid(config),
+        "top_hat_amounts": _member5_float_grid(config, "top_hat_amounts"),
+        "black_hat_amounts": _member5_float_grid(config, "black_hat_amounts"),
+    }
+
+
+def _member5_label(value: float | int) -> str:
+    return str(value).replace(".", "p")
+
+
 def _apply_wavelet(image, parameters: dict):
     return apply_wavelet_denoise(
         image,
@@ -65,7 +147,7 @@ def _apply_homomorphic(image, parameters: dict):
 
 
 def build_candidates(module: str, config: dict) -> list[dict]:
-    """Build one original, three single-method, and nine combined candidates."""
+    """Build the configured candidates for one preprocessing module."""
 
     if module == "member1":
         from hripcb_member1.sweep import build_member1_candidates
@@ -73,6 +155,60 @@ def build_candidates(module: str, config: dict) -> list[dict]:
         return build_member1_candidates(config)
 
     candidates = [_candidate("original", module, "original", {})]
+    if module == "member5":
+        grids = validate_member5_config(config)
+        tv_weights = grids["tv_weights"]
+        kernel_sizes = grids["morphology_kernel_sizes"]
+        top_amounts = grids["top_hat_amounts"]
+        black_amounts = grids["black_hat_amounts"]
+        for weight in tv_weights:
+            candidates.append(
+                _candidate(
+                    f"tv_w{_member5_label(weight)}",
+                    module,
+                    "tv",
+                    {"tv_weight": weight},
+                )
+            )
+        for kernel_size in kernel_sizes:
+            for top_amount in top_amounts:
+                for black_amount in black_amounts:
+                    candidates.append(
+                        _candidate(
+                            "top_black_hat_"
+                            f"k{kernel_size}_t{_member5_label(top_amount)}_b{_member5_label(black_amount)}",
+                            module,
+                            "top_black_hat",
+                            {
+                                "morphology_kernel_size": kernel_size,
+                                "top_hat_amount": top_amount,
+                                "black_hat_amount": black_amount,
+                            },
+                        )
+                    )
+        for weight in tv_weights:
+            for kernel_size in kernel_sizes:
+                for top_amount in top_amounts:
+                    for black_amount in black_amounts:
+                        candidates.append(
+                            _candidate(
+                                "tv_top_black_hat_"
+                                f"w{_member5_label(weight)}_k{kernel_size}"
+                                f"_t{_member5_label(top_amount)}_b{_member5_label(black_amount)}",
+                                module,
+                                "tv_top_black_hat",
+                                {
+                                    "tv_weight": weight,
+                                    "morphology_kernel_size": kernel_size,
+                                    "top_hat_amount": top_amount,
+                                    "black_hat_amount": black_amount,
+                                },
+                            )
+                        )
+        candidate_ids = [candidate["id"] for candidate in candidates]
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise ValueError("member5 candidate IDs must be unique")
+        return candidates
     if module == "member2":
         wavelets = config["wavelet_presets"]
         homomorphics = config["homomorphic_presets"]
@@ -222,6 +358,23 @@ def apply_candidate(image, candidate):
             ),
             sigmas,
             int(parameters.get("msr_processing_max_side", 768)),
+        )
+    if technique == "tv":
+        return apply_tv_denoise(image, weight=parameters["tv_weight"])
+    if technique == "top_black_hat":
+        return apply_top_black_hat(
+            image,
+            kernel_size=parameters["morphology_kernel_size"],
+            top_hat_amount=parameters["top_hat_amount"],
+            black_hat_amount=parameters["black_hat_amount"],
+        )
+    if technique == "tv_top_black_hat":
+        return apply_tv_top_black_hat(
+            image,
+            tv_weight=parameters["tv_weight"],
+            morphology_kernel_size=parameters["morphology_kernel_size"],
+            top_hat_amount=parameters["top_hat_amount"],
+            black_hat_amount=parameters["black_hat_amount"],
         )
     if technique in {"gaussian", "bbhe", "gaussian_bbhe"}:
         from hripcb_member1.sweep import apply_candidate as apply_member1_candidate

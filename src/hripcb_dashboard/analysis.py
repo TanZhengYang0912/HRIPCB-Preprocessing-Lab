@@ -21,6 +21,9 @@ TECHNIQUE_LABELS = {
     "nlm": "Non-local Means",
     "msr": "Multi-Scale Retinex",
     "nlm_msr": "NLM + MSR",
+    "tv": "TV",
+    "top_black_hat": "Top-hat + Black-hat",
+    "tv_top_black_hat": "TV + Top-hat + Black-hat",
 }
 
 MEMBER_TECHNIQUES = {
@@ -28,6 +31,7 @@ MEMBER_TECHNIQUES = {
     "member2": ("wavelet", "homomorphic"),
     "member3": ("bilateral", "agcwd"),
     "member4": ("nlm", "msr"),
+    "member5": ("tv", "top_black_hat"),
 }
 
 ANALYSIS_METRICS = ("precision", "recall", "map50", "map50_95", "f1")
@@ -102,8 +106,8 @@ def _best_single(records: list[dict], module: str, technique: str) -> dict | Non
 def build_analysis_payload(records: Iterable[Mapping[str, object]]) -> dict:
     """Build all report-ready datasets used by Analysis & reports.
 
-    The primary comparison is deliberately five rows: one shared original
-    control and one best combined result for each of the four member modules.
+    The primary comparison is one shared original control and one best combined
+    result for each member module represented in the records.
     Single noise/contrast runs remain in the reference data and stage table.
     """
 
@@ -142,7 +146,13 @@ def build_analysis_payload(records: Iterable[Mapping[str, object]]) -> dict:
     )
 
     stage_comparison = []
-    for module, (noise_technique, contrast_technique) in MEMBER_TECHNIQUES.items():
+    represented_modules = {str(record.get("module", "")) for record in source}
+    stage_modules = (
+        MEMBER_TECHNIQUES
+        if "member5" in represented_modules
+        else {module: pair for module, pair in MEMBER_TECHNIQUES.items() if module != "member5"}
+    )
+    for module, (noise_technique, contrast_technique) in stage_modules.items():
         row = {"member": module}
         if original is not None:
             row["Original"] = _metric(original, "map50_95")

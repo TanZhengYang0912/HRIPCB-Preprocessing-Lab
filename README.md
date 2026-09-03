@@ -1,6 +1,6 @@
 # HRIPCB Preprocessing Lab
 
-A shared PCB defect-detection experiment and demonstration prototype. The project uses the HRIPCB dataset and YOLOv8s to compare image-preprocessing techniques across four member modules with one fixed evaluation protocol.
+A shared PCB defect-detection experiment and demonstration prototype. The project uses the HRIPCB dataset and YOLOv8s to compare image-preprocessing techniques across five member modules with one fixed evaluation protocol.
 
 The workflow has two stages:
 
@@ -17,8 +17,9 @@ The dataset contains six PCB defect classes: `Missing_hole`, `Mouse_bite`, `Open
 | member2 | Wavelet Denoising | Homomorphic Filtering |
 | member3 | Bilateral Filtering | AGCWD |
 | member4 | Non-local Means | Multi-Scale Retinex |
+| member5 | Total Variation (Chambolle) | Top-hat + Black-hat |
 
-`baseline` is the shared control model, not a fifth member module.
+`baseline` is the shared control model, separate from the five member modules.
 
 ## 2. Repository Structure
 
@@ -145,7 +146,7 @@ Machine-readable metrics are stored in `runs/evaluation/val/metrics.json` and `r
 
 ## 7. Member Validation Sweeps
 
-Run all member sweeps with the shared baseline checkpoint:
+Run Members 1-4 with the shared baseline checkpoint:
 
 ```bash
 python3 scripts/run_all_validation_sweeps.py \
@@ -161,8 +162,45 @@ Each sweep changes only preprocessing parameters:
 | member2 | Final required sequence: Wavelet `coif2`, VisuShrink, soft threshold, automatic level; then Homomorphic `gamma_low=0.7`, `gamma_high=1.3`, `cutoff=20`, `sharpness=2.0` |
 | member3 | Bilateral diameter `5, 7, 9`; sigma colour `25, 50, 75`; AGCWD gamma `0.8, 1.0, 1.2` |
 | member4 | NLM `h=3, 7, 10`; MSR scales `(15, 25, 2)`, `(15, 50, 150)`, `(20, 80, 160)` |
+| member5 | TV weight `0.01, 0.02, 0.05`; elliptical kernel `5, 9, 15`; Top-hat and Black-hat amounts each `0.5, 1.0` |
 
 Member 2's required combined winner is `wavelet_stage1_winner_homomorphic_gl0p7_gh1p3_c20p0_s2p0` with validation `mAP50-95=0.5171`. It applies Wavelet before Homomorphic and uses both required techniques. This is a validation result for parameter selection, not a final test score.
+
+### Member 5 resumable search
+
+Launch Member 5 separately from the repository root after installing the dependencies
+and providing the dataset and shared checkpoint:
+
+```bash
+PYTHONPATH=src ./.venv/bin/python scripts/run_member5_full_search.py
+```
+
+The search evaluates 52 candidates on `val`: the original control, 3 TV-only,
+12 morphology-only, and 36 TV → Top-hat/Black-hat combinations. Both morphology
+operations use the same denoised luminance image. Only the 36 combinations can
+win; selection uses detector `mAP50-95`. SSIM and PSNR are diagnostics.
+
+The default batch size is 2. Use `--batch-size 1` to reduce temporary disk usage
+or `--keep-variants` to retain full generated images and evaluation staging.
+After each successful batch, records and progress are saved before those large
+staging directories are removed. Previews, parameters, scores and rankings remain.
+Run the same command again after an interruption: committed candidates are skipped,
+and an incomplete batch is recomputed. Changing the batch size is safe; changing
+the experiment configuration, input files, preprocessing implementation, or detector
+dependencies requires a new `--output` directory.
+
+Outputs live in `runs/member5_full_search/`: `results.json`, `results.csv`,
+`summary.json`, `dashboard.html`, `progress.json`, and `previews/`. Small batch
+reports remain under `batches/`. `summary.json` includes the best TV-only control,
+best morphology-only control, ranked combinations, and the best combination's
+difference from the original baseline. Partial summaries are marked `running`.
+
+Only a completed search merges Member 5 into
+`runs/project_validation_comparison/results.json` and refreshes the comparison
+reports, preserving other members and official test records. Sweep artifacts are
+ignored by Git; the project results JSON is already tracked. The command does not
+train, evaluate `test`, commit, push, or deploy. Tests use small synthetic images
+and a fake detector; implementation checks do not launch the 52-candidate sweep.
 
 ## 8. Dashboard, Sorting and Reports
 
@@ -187,7 +225,7 @@ The dashboard has four main tabs:
 
 1. **Compare experiments** — filter by model, module, technique, split and run type, then sort by mAP50-95, mAP50, F1, Precision or Recall. The default view is **All runs**; the Best recommendation still uses combined techniques only. Original, noise-only and contrast-only records remain available as reference runs.
 2. **Run image inference** — upload images, select the shared baseline model and technique, and view the original image, preprocessed image and YOLO result.
-3. **Analysis & reports** — view displayed experiment count, four member modules, shared baseline controls, model coverage, ranking and protocol details.
+3. **Analysis & reports** — view displayed experiment count, five member modules, shared baseline controls, model coverage, ranking and protocol details.
 4. **Video processing** — upload a short video and run preprocessing plus frame-by-frame YOLO detection, producing browser-compatible H.264 output when available.
 
 Export a PDF, CSV and JSON report:

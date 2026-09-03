@@ -1,10 +1,13 @@
-"""Generic frozen-checkpoint parameter sweep runner for Members 1-4."""
+"""Generic frozen-checkpoint parameter sweep runner for Members 1-5."""
 
 from __future__ import annotations
 
 import csv
 import json
+import os
+import re
 import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -26,7 +29,8 @@ def load_config(path: Path) -> dict:
 
 def _write_image(path: Path, image: np.ndarray, quality: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if not cv2.imwrite(str(path), image, [cv2.IMWRITE_JPEG_QUALITY, int(quality)]):
+    params = [cv2.IMWRITE_JPEG_QUALITY, int(quality)] if path.suffix.lower() in {".jpg", ".jpeg"} else []
+    if not cv2.imwrite(str(path), image, params):
         raise OSError(f"Could not write image: {path}")
 
 
@@ -42,6 +46,20 @@ def _prepared_image(
     if prepared is None:
         raise FileNotFoundError(f"Prepared image not found: {path}")
     return prepared
+
+
+def _write_preview(path: Path, image: np.ndarray, quality: int) -> None:
+    if path.is_symlink() or path.resolve() != path:
+        raise ValueError(f"Unsafe preview path: {path}; choose a new output directory")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".preview-", suffix=path.suffix, dir=path.parent)
+    os.close(descriptor)
+    try:
+        _write_image(Path(temporary), image, quality)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _metric_view(image: np.ndarray, max_side: int) -> np.ndarray:
@@ -95,14 +113,22 @@ def _write_flat_csv(path: Path, records: list[dict]) -> None:
             writer.writerow(row)
 
 
-def run_sweep(dataset_root: Path, output_root: Path, config: dict) -> Path:
+def run_sweep(
+    dataset_root: Path, output_root: Path, config: dict,
+    *, candidates: list[dict] | None = None,
+) -> Path:
     """Generate, evaluate, and publish a generic candidate matrix."""
 
     dataset_root = Path(dataset_root).resolve()
     output_root = Path(output_root).resolve()
-    output_root.mkdir(parents=True, exist_ok=True)
     module = str(config["module"])
-    candidates = build_candidates(module, config)
+    candidates = build_candidates(module, config) if candidates is None else candidates
+    ids = [candidate.get("id", "") for candidate in candidates]
+    if not ids or any(
+        not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", key) for key in ids
+    ) or len(ids) != len(set(ids)):
+        raise ValueError("Candidate IDs must be unique, non-empty safe path components")
+    output_root.mkdir(parents=True, exist_ok=True)
     sources = _source_images(dataset_root, config["split"])
     sample = config.get("sample") or sources[0].name
     if sample not in {source.name for source in sources}:
@@ -151,7 +177,7 @@ def run_sweep(dataset_root: Path, output_root: Path, config: dict) -> Path:
         if preview_image is None:
             raise RuntimeError(f"No preview image generated for {candidate_id}")
         preview_path = output_root / "previews" / f"{candidate_id}.jpg"
-        _write_image(preview_path, preview_image, quality)
+        _write_preview(preview_path, preview_image, quality)
         eval_data[candidate_id] = _write_eval_yaml(output_root, candidate_id, data_config)
         base_records.append({
             **candidate,

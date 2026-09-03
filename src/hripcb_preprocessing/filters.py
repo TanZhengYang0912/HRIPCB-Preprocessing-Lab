@@ -1,12 +1,13 @@
-"""OpenCV implementations for Members 2, 3, and 4 preprocessing methods."""
+"""Preprocessing implementations for Members 2-5."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from numbers import Real
 
 import cv2
 import numpy as np
-from skimage.restoration import denoise_wavelet
+from skimage.restoration import denoise_tv_chambolle, denoise_wavelet
 
 
 def _validate_image(image: np.ndarray) -> None:
@@ -14,6 +15,8 @@ def _validate_image(image: np.ndarray) -> None:
         raise ValueError("image must be a uint8 NumPy array")
     if image.ndim != 3 or image.shape[2] != 3:
         raise ValueError("image must have three BGR channels")
+    if image.shape[0] == 0 or image.shape[1] == 0:
+        raise ValueError("image must be non-empty")
 
 
 def apply_bilateral_filter(
@@ -234,3 +237,119 @@ def apply_homomorphic_filter(
         scaled = (restored - float(restored.mean())) * gain + float(luminance.mean())
     ycrcb[..., 0] = np.clip(scaled, 0, 255).astype(np.uint8)
     return cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+
+
+TV_EPS = 2e-4
+TV_MAX_NUM_ITER = 200
+TV_CHANNEL_AXIS = -1
+
+
+def _finite_real(value, name: str) -> float:
+    """Return a finite real parameter, rejecting bools and complex values."""
+
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a finite real number")
+    try:
+        result = float(value)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be a finite real number") from error
+    if not np.isfinite(result):
+        raise ValueError(f"{name} must be a finite real number")
+    return result
+
+
+def _positive_real(value, name: str) -> float:
+    result = _finite_real(value, name)
+    if result <= 0:
+        raise ValueError(f"{name} must be positive")
+    return result
+
+
+def _non_negative_real(value, name: str) -> float:
+    result = _finite_real(value, name)
+    if result < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return result
+
+
+def _positive_odd_integer(value, name: str) -> int:
+    result = _finite_real(value, name)
+    if not result.is_integer() or result <= 0 or int(result) % 2 == 0:
+        raise ValueError(f"{name} must be a positive odd integer")
+    return int(result)
+
+
+def apply_tv_denoise(image: np.ndarray, weight: float = 0.01) -> np.ndarray:
+    """Denoise a BGR image with RGB-normalized Chambolle total variation."""
+
+    _validate_image(image)
+    weight_value = _positive_real(weight, "weight")
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    denoised_rgb = denoise_tv_chambolle(
+        rgb,
+        weight=weight_value,
+        eps=TV_EPS,
+        max_num_iter=TV_MAX_NUM_ITER,
+        channel_axis=TV_CHANNEL_AXIS,
+    )
+    denoised_rgb = np.asarray(denoised_rgb, dtype=np.float32)
+    if denoised_rgb.shape != rgb.shape or not np.isfinite(denoised_rgb).all():
+        raise ValueError("TV denoising returned an invalid image")
+    denoised_rgb = np.clip(np.rint(denoised_rgb * 255.0), 0, 255).astype(np.uint8)
+    return cv2.cvtColor(denoised_rgb, cv2.COLOR_RGB2BGR)
+
+
+def apply_top_black_hat(
+    image: np.ndarray,
+    kernel_size: int = 5,
+    top_hat_amount: float = 0.5,
+    black_hat_amount: float = 0.5,
+) -> np.ndarray:
+    """Enhance small bright and dark luminance structures from one base image."""
+
+    _validate_image(image)
+    kernel_value = _positive_odd_integer(kernel_size, "kernel_size")
+    top_value = _non_negative_real(top_hat_amount, "top_hat_amount")
+    black_value = _non_negative_real(black_hat_amount, "black_hat_amount")
+
+    ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
+    luminance = ycrcb[..., 0]
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (kernel_value, kernel_value),
+    )
+    top_hat = cv2.morphologyEx(luminance, cv2.MORPH_TOPHAT, kernel)
+    black_hat = cv2.morphologyEx(luminance, cv2.MORPH_BLACKHAT, kernel)
+
+    # Keep both morphology contributions signed until their combined result is
+    # clipped. This avoids uint8 subtraction wrapping before clipping.
+    combined = (
+        luminance.astype(np.float32)
+        + top_value * top_hat.astype(np.float32)
+        - black_value * black_hat.astype(np.float32)
+    )
+    ycrcb[..., 0] = np.clip(np.rint(combined), 0, 255).astype(np.uint8)
+    return cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+
+
+def apply_tv_top_black_hat(
+    image: np.ndarray,
+    tv_weight: float = 0.01,
+    morphology_kernel_size: int = 5,
+    top_hat_amount: float = 0.5,
+    black_hat_amount: float = 0.5,
+) -> np.ndarray:
+    """Apply the fixed TV then Top-hat/Black-hat Member 5 pipeline."""
+
+    _validate_image(image)
+    tv_value = _positive_real(tv_weight, "tv_weight")
+    kernel_value = _positive_odd_integer(morphology_kernel_size, "morphology_kernel_size")
+    top_value = _non_negative_real(top_hat_amount, "top_hat_amount")
+    black_value = _non_negative_real(black_hat_amount, "black_hat_amount")
+    denoised = apply_tv_denoise(image, weight=tv_value)
+    return apply_top_black_hat(
+        denoised,
+        kernel_size=kernel_value,
+        top_hat_amount=top_value,
+        black_hat_amount=black_value,
+    )

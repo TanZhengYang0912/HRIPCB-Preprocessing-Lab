@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one generic Member 1-4 preprocessing sweep."""
+"""Run a generic preprocessing sweep; use Member 5's dedicated script for resume."""
 
 from __future__ import annotations
 
