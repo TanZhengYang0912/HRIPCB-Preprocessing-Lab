@@ -12,8 +12,9 @@ COMBINED_TECHNIQUES = frozenset({
     "wavelet_homomorphic",
     "bilateral_agcwd",
     "nlm_msr",
+    "tv_top_black_hat",
 })
-MEMBER_MODULES = ("member1", "member2", "member3", "member4")
+MEMBER_MODULES = ("member1", "member2", "member3", "member4", "member5")
 
 
 def is_shared_original_record(record: Mapping[str, object]) -> bool:

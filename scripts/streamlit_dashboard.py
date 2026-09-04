@@ -53,6 +53,12 @@ INFERENCE_CONF = 0.25
 INFERENCE_IOU = 0.70
 INFERENCE_MAX_SIDE = 1280
 IMAGE_UPLOAD_VERSION_KEY = "image_inference_uploader_version"
+MEMBER5_PARAMETER_KEYS = (
+    "tv_weight",
+    "morphology_kernel_size",
+    "top_hat_amount",
+    "black_hat_amount",
+)
 
 
 def _load_records(path: Path) -> list[dict]:
@@ -168,7 +174,7 @@ def _render_analysis(st, records: list[dict]) -> None:
     import pandas as pd
 
     st.header("Analysis & findings")
-    st.caption("A report-ready view of the original control, single-technique references, and four combined candidates.")
+    st.caption("A report-ready view of the original control, single-technique references, and five combined candidates.")
     summary = record_metric_summary(records)
     payload = build_analysis_payload(records)
     cards = st.columns(4)
@@ -188,7 +194,7 @@ def _render_analysis(st, records: list[dict]) -> None:
             f"mAP50-95={_metric_value(best, 'map50_95'):.4f}"
         )
 
-    st.subheader("Primary comparison: Original vs four combined techniques")
+    st.subheader("Primary comparison: Original vs five combined techniques")
     st.caption("One shared Original control plus the highest validation mAP50-95 combined result from each member.")
     primary_rows = []
     for rank, row in enumerate(payload["original_vs_combined"], start=1):
@@ -208,8 +214,8 @@ def _render_analysis(st, records: list[dict]) -> None:
 
     left, right = st.columns(2)
     with left:
-        st.subheader("Four combined techniques: metric comparison")
-        st.caption("All four winners use the same validation split and frozen detector protocol.")
+        st.subheader("Five combined techniques: metric comparison")
+        st.caption("All five winners use the same validation split and frozen detector protocol.")
         metric_chart = pd.DataFrame(payload["metric_comparison"])
         if not metric_chart.empty:
             metric_frame = metric_chart.set_index("label")[
@@ -390,7 +396,7 @@ def _render_inference_visual_result(st, item: dict) -> None:
 
 
 def _option_label(value: str) -> str:
-    return "All" if value == "all" else value
+    return "All" if value == "all" else technique_label(value)
 
 
 def _select_value(st, label: str, values: list[str], *, key: str) -> str:
@@ -505,7 +511,7 @@ def _render_active_experiment(st, record: dict, *, heading: str = "Active experi
     st.subheader(heading)
     st.caption(
         f"{record.get('model_label', record.get('model_id', 'baseline'))} · "
-        f"{record.get('module', '—')} · {record.get('technique', '—')} · {record.get('id', '—')}"
+        f"{record.get('module', '—')} · {technique_label(record.get('technique'))} · {record.get('id', '—')}"
     )
     cards = st.columns(5)
     cards[0].metric("Image size", str(INFERENCE_IMGSZ))
@@ -514,7 +520,19 @@ def _render_active_experiment(st, record: dict, *, heading: str = "Active experi
     cards[3].metric("Split", str(record.get("split", "—")))
     cards[4].metric("mAP50-95", f"{float(record.get('metrics', {}).get('map50_95', 0)):.4f}")
     with st.expander("Exact preprocessing parameters", expanded=True):
-        st.json(record.get("parameters", {}))
+        parameters = dict(record.get("parameters") or {})
+        if record.get("module") == "member5":
+            # Keep every Member 5 control visible even when a malformed or
+            # legacy record omitted one, while retaining any future extras.
+            parameters = {
+                key: parameters.get(key)
+                for key in MEMBER5_PARAMETER_KEYS
+            } | {
+                key: value
+                for key, value in parameters.items()
+                if key not in MEMBER5_PARAMETER_KEYS
+            }
+        st.json(parameters)
 
 
 def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer") -> None:
@@ -529,13 +547,13 @@ def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer"
     st.success(
         f"{recommended.get('id', '—')} · "
         f"{recommended.get('model_label', recommended.get('model_id', 'baseline'))} · "
-        f"{recommended.get('module', '—')} / {recommended.get('technique', '—')}"
+        f"{recommended.get('module', '—')} / {technique_label(recommended.get('technique'))}"
     )
     cards = st.columns(4)
     cards[0].metric("Recommended mAP50-95", f"{score:.4f}")
     cards[1].metric("Model", recommended.get("model_id", "baseline"))
     cards[2].metric("Module", recommended.get("module", "—"))
-    cards[3].metric("Technique", recommended.get("technique", "—"))
+    cards[3].metric("Technique", technique_label(recommended.get("technique")))
     st.caption(f"Parameters: {json.dumps(recommended.get('parameters', {}), sort_keys=True)}")
 
     member2 = next(
@@ -584,7 +602,7 @@ def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer"
 
 def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None:
     st.header("Compare experiments")
-    st.caption("Best run and default ranking use the four member combined techniques. Reference runs remain available for comparison.")
+    st.caption("Best run and default ranking use the five member combined techniques. Reference runs remain available for comparison.")
     selection = _render_comparison_filters(st, records)
     st.info("Use val for tuning and comparison. Use test only for the final frozen comparison.")
     sort_col, direction_col, reset_col = st.columns([2, 1.5, 1])
@@ -653,7 +671,7 @@ def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None
             "ID": record["id"],
             "Model": record.get("model_id", "baseline"),
             "Module": "baseline control" if record.get("id") == "original_shared_control" else record.get("module", "—"),
-            "Technique": record.get("display_label", record.get("technique", "—")),
+            "Technique": record.get("display_label", technique_label(record.get("technique"))),
             "Split": record.get("split", "—"),
         }
         row.update({_label(key): value for key, value in record.get("parameters", {}).items()})
@@ -906,7 +924,7 @@ def main(results_path: Path) -> None:
 
     records = _load_records(results_path)
     st.title("HRIPCB Preprocessing Lab")
-    st.caption("A shared, report-ready workspace for Member 1–4 preprocessing experiments.")
+    st.caption("A shared, report-ready workspace for Member 1–5 preprocessing experiments.")
     if not records:
         st.error(f"No experiment records were found at {results_path}.")
         return

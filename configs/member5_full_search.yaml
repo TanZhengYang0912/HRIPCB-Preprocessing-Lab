@@ -1,0 +1,21 @@
+module: member5
+dataset: HRIPCB_UPDATE
+split: val
+checkpoint: runs/baseline/weights/best.pt
+data_config: configs/hripcb_local.yaml
+imgsz: 1024
+conf: 0.25
+iou: 0.7
+device: auto
+workers: 0
+jpeg_quality: 95
+image_metrics_max_side: 256
+primary_metric: map50_95
+model_id: baseline
+model_label: Baseline YOLO
+training_preprocessing: original
+evaluation_type: ablation
+tv_weights: [0.01, 0.02, 0.05]
+morphology_kernel_sizes: [5, 9, 15]
+top_hat_amounts: [0.5, 1.0]
+black_hat_amounts: [0.5, 1.0]
