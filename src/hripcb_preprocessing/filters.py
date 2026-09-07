@@ -106,10 +106,24 @@ def apply_non_local_means(
 
 def apply_multi_scale_retinex(
     image: np.ndarray,
-    sigmas: Sequence[float] = (15.0, 80.0, 250.0),
-    processing_max_side: int = 768,
+    sigmas: Sequence[float] = (5.0, 15.0, 40.0),
+    processing_max_side: int = 1024,
+    luminance_only: bool = True,
+    blend_alpha: float = 0.5,
+    normalization_range: tuple[float, float] | None = (-1.5, 1.5),
 ) -> np.ndarray:
-    """Apply multi-scale Retinex with percentile normalization per channel."""
+    """Apply multi-scale Retinex, enhancing contrast without destroying defect edges.
+
+    Naive per-channel RGB Retinex distorts board/copper hues because each channel is
+    stretched independently. Restricting the transform to YCrCb luminance and leaving
+    chroma untouched keeps color stable. A fixed ``normalization_range`` (rather than
+    per-image adaptive percentiles) gives the detector consistent output statistics
+    across images instead of a different rescaling every time. ``blend_alpha`` mixes
+    the enhanced luminance back with the original so fine defect edges survive rather
+    than being fully replaced by the illumination-normalized signal. Sigmas default to
+    a small-scale range suited to PCB trace/defect structure rather than the large,
+    natural-scene illumination scales that blur those features away.
+    """
 
     _validate_image(image)
     sigma_values = tuple(float(value) for value in sigmas)
@@ -117,26 +131,49 @@ def apply_multi_scale_retinex(
         raise ValueError("sigmas must contain positive values")
     if processing_max_side <= 0:
         raise ValueError("processing_max_side must be positive")
+    if not 0.0 <= blend_alpha <= 1.0:
+        raise ValueError("blend_alpha must be between 0 and 1")
+    if normalization_range is not None and normalization_range[1] <= normalization_range[0]:
+        raise ValueError("normalization_range must have high greater than low")
+
     working = image
     scale = 1.0
     if max(image.shape[:2]) > processing_max_side:
         scale = processing_max_side / max(image.shape[:2])
         size = (max(1, round(image.shape[1] * scale)), max(1, round(image.shape[0] * scale)))
         working = cv2.resize(image, size, interpolation=cv2.INTER_AREA)
-    result = np.empty_like(working)
-    for channel_index in range(3):
-        channel = working[..., channel_index].astype(np.float32) + 1.0
+
+    if luminance_only:
+        ycrcb = cv2.cvtColor(working, cv2.COLOR_BGR2YCrCb)
+        source_channels = [ycrcb[..., 0]]
+    else:
+        source_channels = [working[..., index] for index in range(3)]
+
+    enhanced_channels = []
+    for original in source_channels:
+        channel = original.astype(np.float32) + 1.0
         retinex = np.zeros_like(channel)
         for sigma in sigma_values:
             blurred = cv2.GaussianBlur(channel, (0, 0), sigmaX=sigma, sigmaY=sigma)
             retinex += np.log(channel) - np.log(blurred + 1.0)
         retinex /= len(sigma_values)
-        low, high = np.percentile(retinex, (1.0, 99.0))
+        if normalization_range is None:
+            low, high = np.percentile(retinex, (1.0, 99.0))
+        else:
+            low, high = normalization_range
         if high <= low:
             scaled = np.zeros_like(retinex)
         else:
-            scaled = (retinex - low) * 255.0 / (high - low)
-        result[..., channel_index] = np.clip(scaled, 0, 255).astype(np.uint8)
+            scaled = np.clip((retinex - low) * 255.0 / (high - low), 0, 255)
+        blended = blend_alpha * scaled + (1.0 - blend_alpha) * original.astype(np.float32)
+        enhanced_channels.append(np.clip(np.rint(blended), 0, 255).astype(np.uint8))
+
+    if luminance_only:
+        ycrcb[..., 0] = enhanced_channels[0]
+        result = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+    else:
+        result = np.stack(enhanced_channels, axis=-1)
+
     if scale != 1.0:
         return cv2.resize(result, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_LINEAR)
     return result

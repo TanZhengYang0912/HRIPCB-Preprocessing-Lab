@@ -424,6 +424,44 @@ def _select_value(st, label: str, values: list[str], *, key: str, format_func=_o
     return st.selectbox(label, choices, **kwargs)
 
 
+# The Technique dropdown is split into "Filtering" (noise removal) and
+# "Contrast" (enhancement) pickers. Both stages come from the same existing
+# per-module technique pairs already used by the analysis module, so this is
+# purely a presentation split: no new technique values are introduced and no
+# preprocessing code is touched. Either side can be left as "Don't apply".
+DONT_APPLY = "dont_apply"
+NOISE_TECHNIQUES = {pair[0] for pair in MEMBER_TECHNIQUES.values()}
+CONTRAST_TECHNIQUES = {pair[1] for pair in MEMBER_TECHNIQUES.values()}
+_MODULE_BY_NOISE = {pair[0]: module for module, pair in MEMBER_TECHNIQUES.items()}
+_MODULE_BY_CONTRAST = {pair[1]: module for module, pair in MEMBER_TECHNIQUES.items()}
+
+
+def _decompose_technique(technique: str) -> tuple[str, str]:
+    """Split an existing technique value into its (filtering, contrast) parts."""
+
+    if technique in NOISE_TECHNIQUES:
+        return technique, DONT_APPLY
+    if technique in CONTRAST_TECHNIQUES:
+        return DONT_APPLY, technique
+    for noise, contrast in MEMBER_TECHNIQUES.values():
+        if technique == f"{noise}_{contrast}":
+            return noise, contrast
+    return DONT_APPLY, DONT_APPLY
+
+
+def _select_optional(st, label: str, values: list[str], *, key: str) -> str:
+    choices = [DONT_APPLY, *values]
+    current = st.session_state.get(key, DONT_APPLY)
+    if current not in choices:
+        current = DONT_APPLY
+        st.session_state[key] = current
+    format_func = lambda value: "Don't apply" if value == DONT_APPLY else technique_label(value)
+    kwargs = {"format_func": format_func, "key": key}
+    if key not in st.session_state:
+        kwargs["index"] = choices.index(current)
+    return st.selectbox(label, choices, **kwargs)
+
+
 def _render_comparison_filters(st, records: list[dict]) -> dict[str, str]:
     keys = {field: f"compare_{field}" for field in FILTER_FIELDS}
     selection = {
@@ -497,7 +535,7 @@ def _render_inference_filters(st, records: list[dict], *, key_prefix: str = "inf
     st.session_state[module_key] = selection["module"]
     st.session_state[technique_key] = selection["technique"]
 
-    model_col, module_col, technique_col = st.columns(3)
+    model_col, module_col, filtering_col, contrast_col = st.columns(4)
     with model_col:
         selection["model"] = _select_value(
             st, "Model", option_values(records)["model"], key=model_key
@@ -509,13 +547,47 @@ def _render_inference_filters(st, records: list[dict], *, key_prefix: str = "inf
             st, "Module", module_options, key=module_key
         )
     selection = normalize_selection(records, selection)
-    with technique_col:
-        technique_options = option_values(
-            records, model=selection["model"], module=selection["module"]
-        )["technique"]
-        selection["technique"] = _select_value(
-            st, "Technique", technique_options, key=technique_key
-        )
+
+    technique_options = option_values(
+        records, model=selection["model"], module=selection["module"]
+    )["technique"]
+
+    # Filtering and Contrast are two views onto the same "technique" selection,
+    # so keep them in sync with technique_key rather than owning state of
+    # their own: resync from technique_key whenever it changed outside these
+    # two widgets (e.g. the "Use recommended experiment" button below).
+    filtering_key, contrast_key = f"{key_prefix}_filtering", f"{key_prefix}_contrast"
+    sync_key = f"{key_prefix}_technique_sync"
+    if st.session_state.get(sync_key) != selection["technique"]:
+        filtering_default, contrast_default = _decompose_technique(selection["technique"])
+        st.session_state[filtering_key] = filtering_default
+        st.session_state[contrast_key] = contrast_default
+
+    with filtering_col:
+        filtering_options = sorted(NOISE_TECHNIQUES & set(technique_options))
+        filtering_choice = _select_optional(st, "Filtering", filtering_options, key=filtering_key)
+    with contrast_col:
+        contrast_options = sorted(CONTRAST_TECHNIQUES & set(technique_options))
+        if filtering_choice != DONT_APPLY:
+            paired_module = _MODULE_BY_NOISE.get(filtering_choice)
+            contrast_options = [
+                value for value in contrast_options if _MODULE_BY_CONTRAST.get(value) == paired_module
+            ]
+        contrast_choice = _select_optional(st, "Contrast", contrast_options, key=contrast_key)
+
+    if filtering_choice == DONT_APPLY and contrast_choice == DONT_APPLY:
+        selection["technique"] = "all"
+    elif contrast_choice == DONT_APPLY:
+        selection["technique"] = filtering_choice
+    elif filtering_choice == DONT_APPLY:
+        selection["technique"] = contrast_choice
+    else:
+        selection["technique"] = f"{filtering_choice}_{contrast_choice}"
+    if selection["technique"] not in {"all", *technique_options}:
+        selection["technique"] = "all"
+
+    st.session_state[technique_key] = selection["technique"]
+    st.session_state[sync_key] = selection["technique"]
     selection = normalize_selection(records, selection)
     return selection
 
