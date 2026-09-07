@@ -34,6 +34,20 @@ MEMBER_TECHNIQUES = {
     "member5": ("tv", "top_black_hat"),
 }
 
+MODULE_DISPLAY = {
+    "member4": "Joshua Lau Hao Jie",
+    "member5": "Ng Chi Hao",
+    "member1": "Tan Chun Jie",
+    "member3": "Tan Zheng Yang",
+    "member2": "Extra study",
+    "baseline": "Baseline control",
+}
+
+# member2 (Wavelet + Homomorphic) was explored outside the group contract.
+# It keeps its records and stays visible, but it is not one of the four
+# assigned members and must never be counted as one.
+EXTRA_STUDY_MODULES = frozenset({"member2"})
+
 ANALYSIS_METRICS = ("precision", "recall", "map50", "map50_95", "f1")
 METRIC_LABELS = {
     "precision": "Precision",
@@ -49,6 +63,19 @@ def technique_label(technique: object) -> str:
 
     value = str(technique or "unknown").lower()
     return TECHNIQUE_LABELS.get(value, value.replace("_", " + ").title())
+
+
+def module_label(module: object) -> str:
+    """Return the assigned member name for an internal module key."""
+
+    value = str(module or "unknown").lower()
+    return MODULE_DISPLAY.get(value, value)
+
+
+def is_extra_study(module: object) -> bool:
+    """Return whether a module key is an extra study rather than a member."""
+
+    return str(module or "").lower() in EXTRA_STUDY_MODULES
 
 
 def metric_label(metric: object) -> str:
@@ -121,7 +148,7 @@ def build_analysis_payload(records: Iterable[Mapping[str, object]]) -> dict:
     original_vs_combined.extend(
         _chart_row(
             record,
-            label=f"{record.get('module', 'unknown')} / {technique_label(record.get('technique'))}",
+            label=f"{module_label(record.get('module'))} / {technique_label(record.get('technique'))}",
         )
         for record in combined_winner_records
     )
@@ -132,7 +159,7 @@ def build_analysis_payload(records: Iterable[Mapping[str, object]]) -> dict:
 
     metric_comparison = [
         {
-            "label": f"{record.get('module', 'unknown')} / {technique_label(record.get('technique'))}",
+            "label": f"{module_label(record.get('module'))} / {technique_label(record.get('technique'))}",
             "id": str(record.get("id", "")),
             "module": str(record.get("module", "")),
             "technique": technique_label(record.get("technique")),
@@ -153,7 +180,7 @@ def build_analysis_payload(records: Iterable[Mapping[str, object]]) -> dict:
         else {module: pair for module, pair in MEMBER_TECHNIQUES.items() if module != "member5"}
     )
     for module, (noise_technique, contrast_technique) in stage_modules.items():
-        row = {"member": module}
+        row = {"member": module, "member_label": module_label(module)}
         if original is not None:
             row["Original"] = _metric(original, "map50_95")
         for stage, technique in (("Noise-only", noise_technique), ("Contrast-only", contrast_technique)):
@@ -196,9 +223,43 @@ def build_analysis_payload(records: Iterable[Mapping[str, object]]) -> dict:
 
     return {
         "original_vs_combined": original_vs_combined,
-        "combined_winners": [_chart_row(record, label=f"{record.get('module', 'unknown')} / {technique_label(record.get('technique'))}") for record in combined_winner_records],
+        "combined_winners": [_chart_row(record, label=f"{module_label(record.get('module'))} / {technique_label(record.get('technique'))}") for record in combined_winner_records],
         "metric_comparison": metric_comparison,
         "stage_comparison": stage_comparison,
         "parameter_sensitivity": sensitivity,
         "retrained_vs_baseline": retrained_vs_baseline,
     }
+
+
+def ranking_chart_rows(
+    records: Iterable[Mapping[str, object]],
+    metric: str = "map50_95",
+) -> tuple[list[dict], float | None]:
+    """Build ranked bar rows plus the unprocessed baseline for that metric.
+
+    Original records are pulled out as the baseline reference rather than
+    plotted, so the chart shows only what preprocessing did relative to
+    doing nothing.
+    """
+
+    source = list(records)
+    originals = [
+        record
+        for record in source
+        if str(record.get("technique", "")).lower() == "original"
+    ]
+    baseline = max((_metric(record, metric) for record in originals), default=None)
+
+    rows = [
+        {
+            "label": f"{module_label(record.get('module'))} / {technique_label(record.get('technique'))}",
+            "member": module_label(record.get("module")),
+            "technique": technique_label(record.get("technique")),
+            "value": _metric(record, metric),
+            "is_extra": is_extra_study(record.get("module")),
+        }
+        for record in source
+        if str(record.get("technique", "")).lower() != "original"
+    ]
+    rows.sort(key=lambda row: (-row["value"], row["label"]))
+    return rows, baseline

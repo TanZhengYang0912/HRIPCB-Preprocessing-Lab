@@ -1,0 +1,25 @@
+{
+  "version": "0.0.1",
+  "autoPort": false,
+  "configurations": [
+    {
+      "name": "hripcb-dashboard",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PYTHONPATH=/Users/ng/Documents/GitHub/Image_Processing/.venv/lib/python3.12/site-packages",
+        "/opt/homebrew/bin/python3.12",
+        "-m",
+        "streamlit",
+        "run",
+        "scripts/streamlit_dashboard.py",
+        "--server.port",
+        "8501",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8501
+    }
+  ]
+}

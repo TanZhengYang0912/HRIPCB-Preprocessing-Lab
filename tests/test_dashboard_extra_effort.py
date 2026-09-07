@@ -48,7 +48,7 @@ def test_extract_image_entries_accepts_images_and_rejects_unsafe_or_unsupported_
 def test_record_metric_summary_ranks_runs_and_calculates_coverage():
     records = [
         {"id": "a", "model_id": "baseline", "module": "member1", "metrics": {"map50_95": 0.40, "f1": 0.80}},
-        {"id": "b", "model_id": "final", "module": "member2", "metrics": {"map50_95": 0.55, "f1": 0.85}},
+        {"id": "b", "model_id": "final", "module": "member3", "metrics": {"map50_95": 0.55, "f1": 0.85}},
     ]
 
     summary = record_metric_summary(records)
@@ -62,7 +62,7 @@ def test_record_metric_summary_ranks_runs_and_calculates_coverage():
 def test_record_metric_summary_excludes_baseline_control_from_module_count():
     records = [
         {"id": "member1", "model_id": "baseline", "module": "member1", "metrics": {"map50_95": 0.40}},
-        {"id": "member2", "model_id": "baseline", "module": "member2", "metrics": {"map50_95": 0.41}},
+        {"id": "member3", "model_id": "baseline", "module": "member3", "metrics": {"map50_95": 0.41}},
         {"id": "control", "model_id": "baseline", "module": "baseline", "metrics": {"map50_95": 0.39}},
     ]
 
@@ -156,7 +156,7 @@ def test_analysis_payload_contains_original_and_four_combined_winners():
 
     assert [row["label"] for row in payload["original_vs_combined"]] == [
         "Original",
-        "member1 / Gaussian + BBHE",
+        "Tan Chun Jie / Gaussian + BBHE",
     ]
     assert payload["combined_winners"][0]["id"] == "member1_combined"
     assert payload["combined_winners"][0]["map50_95"] == 0.51

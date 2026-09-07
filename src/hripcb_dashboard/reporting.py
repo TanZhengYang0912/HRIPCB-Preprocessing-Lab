@@ -8,6 +8,7 @@ import html
 import math
 from collections.abc import Iterable
 
+from .analysis import EXTRA_STUDY_MODULES
 from .filtering import collapse_shared_baseline, is_combined_record
 
 
@@ -36,7 +37,8 @@ def record_metric_summary(records: Iterable[dict], metric: str = "map50_95") -> 
         "count": len(source),
         "display_count": len(display_source),
         "reference_count": len(reference),
-        "module_count": len(module_values - {"baseline"}),
+        "module_count": len(module_values - {"baseline"} - EXTRA_STUDY_MODULES),
+        "extra_study_count": len(module_values & EXTRA_STUDY_MODULES),
         "baseline_control_count": baseline_control_count,
         "model_count": len({str(record.get("model_id", "baseline")) for record in source}),
         "combined_count": len(combined),
@@ -151,7 +153,7 @@ def build_report_pdf(records: list[dict], protocol: dict) -> bytes:
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-    from .analysis import technique_label
+    from .analysis import module_label, technique_label
 
     summary = record_metric_summary(records)
     charts = report_chart_payload(records)
@@ -191,7 +193,8 @@ def build_report_pdf(records: list[dict], protocol: dict) -> bytes:
         Paragraph("HRIPCB Preprocessing Comparison", title_style),
         paragraph(
             f"{summary['display_count']} displayed runs ({summary['count']} raw records) across "
-            f"{summary['module_count']} member modules plus {summary['baseline_control_count']} baseline controls "
+            f"{summary['module_count']} member modules + {summary['extra_study_count']} extra study + "
+            f"{summary['baseline_control_count']} baseline controls "
             f"and {summary['model_count']} models. "
             "Primary metric: mAP50-95.",
             body_style,
@@ -199,7 +202,7 @@ def build_report_pdf(records: list[dict], protocol: dict) -> bytes:
         Spacer(1, 3 * mm),
         paragraph(
             "Best run: " + (
-                f"{best.get('id', '—')} · {best.get('module', '—')} / {technique_label(best.get('technique'))} · "
+                f"{best.get('id', '—')} · {module_label(best.get('module'))} / {technique_label(best.get('technique'))} · "
                 f"mAP50-95={_metric(best, 'map50_95'):.4f}"
                 if best else "—"
             ),
@@ -255,7 +258,7 @@ def build_report_pdf(records: list[dict], protocol: dict) -> bytes:
     }
     visual_story.append(Table([[
         _bar_chart_drawing("Combined winner metrics", metric_categories, metric_series, width=350, height=205),
-        _bar_chart_drawing("Processing stage comparison", [row["member"] for row in stage_rows], stage_series, width=350, height=205),
+        _bar_chart_drawing("Processing stage comparison", [row["member_label"] for row in stage_rows], stage_series, width=350, height=205),
     ]], colWidths=[360, 360], hAlign="LEFT"))
     if charts["retrained_vs_baseline"]:
         retrained_rows = charts["retrained_vs_baseline"]
@@ -280,8 +283,8 @@ def build_report_pdf(records: list[dict], protocol: dict) -> bytes:
         data.append([
             paragraph(record.get("id", "")),
             paragraph(record.get("model_id", "baseline")),
-            paragraph(record.get("module", "")),
-            paragraph(record.get("technique", "")),
+            paragraph(module_label(record.get("module"))),
+            paragraph(technique_label(record.get("technique"))),
             paragraph(record.get("split", "")),
             paragraph(f"{_metric(record, 'map50_95'):.4f}"),
             paragraph(f"{_metric(record, 'f1'):.4f}"),
@@ -308,7 +311,7 @@ def build_report_pdf(records: list[dict], protocol: dict) -> bytes:
     for record in summary["ranked"]:
         parameter_data.append([
             paragraph(record.get("id", ""), small_style),
-            paragraph(f"{record.get('module', '—')} / {record.get('technique', '—')}", small_style),
+            paragraph(f"{module_label(record.get('module'))} / {technique_label(record.get('technique'))}", small_style),
             paragraph(format_parameters(record.get("parameters", {})), small_style, line_breaks=True),
         ])
     parameter_table = Table(parameter_data, repeatRows=1, colWidths=[51 * mm, 47 * mm, 131 * mm])

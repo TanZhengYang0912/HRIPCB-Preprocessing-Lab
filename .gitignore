@@ -87,3 +87,4 @@ runs/**/*.pdf
 
 # Streamlit local state
 .streamlit/
+/docs

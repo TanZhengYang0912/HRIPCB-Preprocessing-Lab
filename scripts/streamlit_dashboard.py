@@ -9,6 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import altair as alt
 import cv2
 import numpy as np
 
@@ -19,7 +20,13 @@ DEFAULT_RESULTS_PATH = PROJECT_ROOT / "runs/project_validation_comparison/result
 
 from hripcb_member1.evaluation import select_device
 from hripcb_dashboard.batch import extract_image_entries
-from hripcb_dashboard.analysis import MEMBER_TECHNIQUES, build_analysis_payload, technique_label
+from hripcb_dashboard.analysis import (
+    MEMBER_TECHNIQUES,
+    build_analysis_payload,
+    module_label,
+    ranking_chart_rows,
+    technique_label,
+)
 from hripcb_dashboard.reporting import build_report_pdf, dumps_json, record_metric_summary
 from hripcb_dashboard.video import process_video
 from hripcb_preprocessing.candidates import apply_candidate
@@ -174,7 +181,7 @@ def _render_analysis(st, records: list[dict]) -> None:
     import pandas as pd
 
     st.header("Analysis & findings")
-    st.caption("A report-ready view of the original control, single-technique references, and five combined candidates.")
+    st.caption("A report-ready view of the original control, single-technique references, and four combined candidates.")
     summary = record_metric_summary(records)
     payload = build_analysis_payload(records)
     cards = st.columns(4)
@@ -185,16 +192,16 @@ def _render_analysis(st, records: list[dict]) -> None:
     cards[3].metric("Best combined mAP50-95", f"{_metric_value(best, 'map50_95'):.4f}" if best else "—")
     st.caption(
         f"Displayed count removes duplicate member original controls. Raw records: {summary['count']}. "
-        f"Coverage: {summary['module_count']} member modules + {summary['baseline_control_count']} baseline controls."
+        f"Coverage: {summary['module_count']} member modules + {summary['extra_study_count']} extra study + {summary['baseline_control_count']} baseline controls."
     )
     if best:
         st.success(
             f"Best combined run: {best.get('id', '—')} · "
-            f"{best.get('module', '—')} / {technique_label(best.get('technique'))} · "
+            f"{module_label(best.get('module'))} / {technique_label(best.get('technique'))} · "
             f"mAP50-95={_metric_value(best, 'map50_95'):.4f}"
         )
 
-    st.subheader("Primary comparison: Original vs five combined techniques")
+    st.subheader("Primary comparison: Original vs four combined techniques")
     st.caption("One shared Original control plus the highest validation mAP50-95 combined result from each member.")
     primary_rows = []
     for rank, row in enumerate(payload["original_vs_combined"], start=1):
@@ -214,8 +221,8 @@ def _render_analysis(st, records: list[dict]) -> None:
 
     left, right = st.columns(2)
     with left:
-        st.subheader("Five combined techniques: metric comparison")
-        st.caption("All five winners use the same validation split and frozen detector protocol.")
+        st.subheader("Four combined techniques: metric comparison")
+        st.caption("All four winners use the same validation split and frozen detector protocol.")
         metric_chart = pd.DataFrame(payload["metric_comparison"])
         if not metric_chart.empty:
             metric_frame = metric_chart.set_index("label")[
@@ -236,14 +243,16 @@ def _render_analysis(st, records: list[dict]) -> None:
         st.caption("Best available result for each member's Original, noise-only, contrast-only, and combined stages.")
         stage_chart = pd.DataFrame(payload["stage_comparison"])
         if not stage_chart.empty:
-            st.bar_chart(stage_chart.set_index("member"), height=320)
+            st.bar_chart(stage_chart.drop(columns=["member"]).set_index("member_label"), height=320)
 
     st.subheader("Combined parameter sensitivity")
     st.caption("This exposes every combined parameter run so the best setting is auditable, not hidden behind one score.")
     sensitivity = pd.DataFrame(payload["parameter_sensitivity"])
     if not sensitivity.empty:
         modules = sorted(sensitivity["module"].unique())
-        selected_module = st.selectbox("Member", modules, key="analysis_sensitivity_module")
+        selected_module = st.selectbox(
+            "Member", modules, key="analysis_sensitivity_module", format_func=module_label
+        )
         module_sensitivity = sensitivity[sensitivity["module"] == selected_module].copy()
         module_sensitivity["Parameters"] = module_sensitivity["parameters"].map(lambda value: json.dumps(value, sort_keys=True))
         st.bar_chart(module_sensitivity.set_index("id")[["mAP50-95"]], height=280)
@@ -256,7 +265,7 @@ def _render_analysis(st, records: list[dict]) -> None:
                 [
                     {
                         "ID": record.get("id", "—"),
-                        "Module": record.get("module", "—"),
+                        "Module": module_label(record.get("module")),
                         "Technique": technique_label(record.get("technique")),
                         "Stage": (
                             "Original" if record.get("technique") == "original" else
@@ -399,13 +408,17 @@ def _option_label(value: str) -> str:
     return "All" if value == "all" else technique_label(value)
 
 
-def _select_value(st, label: str, values: list[str], *, key: str) -> str:
+def _module_option_label(value: str) -> str:
+    return "All" if value == "all" else module_label(value)
+
+
+def _select_value(st, label: str, values: list[str], *, key: str, format_func=_option_label) -> str:
     choices = ["all", *values]
     current = st.session_state.get(key, "all")
     if current not in choices:
         current = "all"
         st.session_state[key] = current
-    kwargs = {"format_func": _option_label, "key": key}
+    kwargs = {"format_func": format_func, "key": key}
     if key not in st.session_state:
         kwargs["index"] = choices.index(current)
     return st.selectbox(label, choices, **kwargs)
@@ -438,7 +451,7 @@ def _render_comparison_filters(st, records: list[dict]) -> dict[str, str]:
             records, model=selection["model"], split=selection["split"]
         )["module"]
         selection["module"] = _select_value(
-            st, "Module", module_options, key=keys["module"]
+            st, "Module", module_options, key=keys["module"], format_func=_module_option_label
         )
     selection = normalize_selection(records, selection)
     with technique_col:
@@ -511,7 +524,7 @@ def _render_active_experiment(st, record: dict, *, heading: str = "Active experi
     st.subheader(heading)
     st.caption(
         f"{record.get('model_label', record.get('model_id', 'baseline'))} · "
-        f"{record.get('module', '—')} · {technique_label(record.get('technique'))} · {record.get('id', '—')}"
+        f"{module_label(record.get('module'))} · {technique_label(record.get('technique'))} · {record.get('id', '—')}"
     )
     cards = st.columns(5)
     cards[0].metric("Image size", str(INFERENCE_IMGSZ))
@@ -547,12 +560,12 @@ def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer"
     st.success(
         f"{recommended.get('id', '—')} · "
         f"{recommended.get('model_label', recommended.get('model_id', 'baseline'))} · "
-        f"{recommended.get('module', '—')} / {technique_label(recommended.get('technique'))}"
+        f"{module_label(recommended.get('module'))} / {technique_label(recommended.get('technique'))}"
     )
     cards = st.columns(4)
     cards[0].metric("Recommended mAP50-95", f"{score:.4f}")
     cards[1].metric("Model", recommended.get("model_id", "baseline"))
-    cards[2].metric("Module", recommended.get("module", "—"))
+    cards[2].metric("Module", module_label(recommended.get("module")))
     cards[3].metric("Technique", technique_label(recommended.get("technique")))
     st.caption(f"Parameters: {json.dumps(recommended.get('parameters', {}), sort_keys=True)}")
 
@@ -587,8 +600,8 @@ def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer"
             st.dataframe(
                 [
                     {
-                        "Module": row.get("module", "—"),
-                        "Technique": row.get("technique", "—"),
+                        "Module": module_label(row.get("module")),
+                        "Technique": technique_label(row.get("technique")),
                         "Parameters": json.dumps(row.get("parameters", {}), sort_keys=True),
                         "mAP50-95": round(float(row.get("metrics", {}).get("map50_95", 0)), 4),
                         "Experiment": row.get("id", "—"),
@@ -602,7 +615,7 @@ def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer"
 
 def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None:
     st.header("Compare experiments")
-    st.caption("Best run and default ranking use the five member combined techniques. Reference runs remain available for comparison.")
+    st.caption("Best run and default ranking use the four member combined techniques. Reference runs remain available for comparison.")
     selection = _render_comparison_filters(st, records)
     st.info("Use val for tuning and comparison. Use test only for the final frozen comparison.")
     sort_col, direction_col, reset_col = st.columns([2, 1.5, 1])
@@ -658,19 +671,54 @@ def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None
     if best_combined:
         st.success(
             f"Best combined run: {best_combined.get('id', '—')} · "
-            f"{best_combined.get('module', '—')} / {best_combined.get('technique', '—')}"
+            f"{module_label(best_combined.get('module'))} / {technique_label(best_combined.get('technique'))}"
         )
         st.caption(
             "Parameters: "
             + json.dumps(best_combined.get("parameters", {}), sort_keys=True)
         )
 
+    chart_rows, baseline_value = ranking_chart_rows(filtered, sort_metric)
+    if chart_rows:
+        st.subheader(f"Ranking by {_label(sort_metric)}")
+        if baseline_value is None:
+            st.caption("No unprocessed control is present in the current filter, so no baseline line is drawn.")
+        else:
+            st.caption(f"The vertical line marks the unprocessed baseline at {baseline_value:.4f}.")
+        bars = (
+            alt.Chart(alt.Data(values=chart_rows))
+            .mark_bar(cornerRadiusEnd=4, height=17)
+            .encode(
+                x=alt.X("value:Q", title=_label(sort_metric)),
+                y=alt.Y("label:N", sort="-x", title=None),
+                color=alt.Color(
+                    "is_extra:N",
+                    title=None,
+                    scale=alt.Scale(domain=[False, True], range=["#2563eb", "#a9b6c6"]),
+                    legend=None,
+                ),
+                tooltip=[
+                    alt.Tooltip("member:N", title="Member"),
+                    alt.Tooltip("technique:N", title="Technique"),
+                    alt.Tooltip("value:Q", title=_label(sort_metric), format=".4f"),
+                ],
+            )
+        )
+        layers = [bars]
+        if baseline_value is not None:
+            layers.append(
+                alt.Chart(alt.Data(values=[{"baseline": baseline_value}]))
+                .mark_rule(color="#172033", strokeWidth=2)
+                .encode(x="baseline:Q")
+            )
+        st.altair_chart(alt.layer(*layers).properties(height=max(120, 26 * len(chart_rows))), use_container_width=True)
+
     table = []
     for record in filtered:
         row = {
             "ID": record["id"],
             "Model": record.get("model_id", "baseline"),
-            "Module": "baseline control" if record.get("id") == "original_shared_control" else record.get("module", "—"),
+            "Module": "Baseline control" if record.get("id") == "original_shared_control" else module_label(record.get("module")),
             "Technique": record.get("display_label", technique_label(record.get("technique"))),
             "Split": record.get("split", "—"),
         }
@@ -698,7 +746,11 @@ def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None
     with left:
         st.subheader(selected["id"])
         if preview_path is not None:
-            st.image(str(preview_path), caption=f"{selected.get('module')} / {selected.get('technique')}", width="stretch")
+            st.image(
+                str(preview_path),
+                caption=f"{module_label(selected.get('module'))} / {technique_label(selected.get('technique'))}",
+                width="stretch",
+            )
         else:
             st.info(
                 "Preview image is not included in this deployment. "
@@ -907,6 +959,14 @@ def _render_video_mode(st, records: list[dict]) -> None:
         )
 
 
+MODE_RUN = "Run detection"
+MODE_STUDY = "Study"
+MODE_CAPTIONS = {
+    MODE_RUN: "Upload PCB images or video, apply a preprocessing pipeline, and compare detections before and after.",
+    MODE_STUDY: "Compare every experiment, rank techniques, inspect metrics and export the report.",
+}
+
+
 def main(results_path: Path) -> None:
     import streamlit as st
 
@@ -928,16 +988,29 @@ def main(results_path: Path) -> None:
     if not records:
         st.error(f"No experiment records were found at {results_path}.")
         return
-    tabs = st.tabs(["Compare experiments", "Run image inference", "Analysis & reports", "Video processing"])
-    with tabs[0]:
-        _render_comparison_mode(st, records, results_path)
-    with tabs[1]:
-        _render_inference_mode(st, records)
-    with tabs[2]:
-        _render_analysis(st, records)
-        _render_report_tools(st, records)
-    with tabs[3]:
-        _render_video_mode(st, records)
+    # segmented_control returns None until the user picks, so fall back to Run.
+    mode = st.segmented_control(
+        "Mode",
+        [MODE_RUN, MODE_STUDY],
+        default=MODE_RUN,
+        key="app_mode",
+        label_visibility="collapsed",
+    ) or MODE_RUN
+    st.caption(MODE_CAPTIONS[mode])
+
+    if mode == MODE_RUN:
+        tabs = st.tabs(["Run image inference", "Video processing"])
+        with tabs[0]:
+            _render_inference_mode(st, records)
+        with tabs[1]:
+            _render_video_mode(st, records)
+    else:
+        tabs = st.tabs(["Compare experiments", "Analysis & reports"])
+        with tabs[0]:
+            _render_comparison_mode(st, records, results_path)
+        with tabs[1]:
+            _render_analysis(st, records)
+            _render_report_tools(st, records)
 
 
 if __name__ == "__main__":
