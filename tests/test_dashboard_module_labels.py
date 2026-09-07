@@ -167,7 +167,7 @@ def test_streamlit_dashboard_uses_left_sidebar_navigation():
     # Five pages, reached via a left sidebar rather than a top segmented control.
     assert 'NAV_DASHBOARD = "Dashboard"' in source
     assert 'NAV_EXPERIMENTS = "Experiments"' in source
-    assert 'NAV_IMAGE_INFERENCE = "Image inference"' in source
+    assert 'NAV_IMAGE_INFERENCE = "Image processing"' in source
     assert 'NAV_ANALYSIS = "Analysis & reports"' in source
     assert 'NAV_VIDEO = "Video processing"' in source
     assert "def _render_sidebar_nav(" in source
