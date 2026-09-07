@@ -1031,12 +1031,118 @@ def _render_video_mode(st, records: list[dict]) -> None:
         )
 
 
-MODE_RUN = "Run detection"
-MODE_STUDY = "Study Mode"
-MODE_CAPTIONS = {
-    MODE_RUN: "Upload PCB images or video, apply a preprocessing pipeline, and compare detections before and after.",
-    MODE_STUDY: "Compare every experiment, rank techniques, inspect metrics and export the report.",
-}
+# Left-hand navigation pages. Each maps straight onto an existing, unmodified
+# render function -- this only changes how the user reaches them, not what
+# they do or how any preprocessing/detection pipeline runs.
+NAV_DASHBOARD = "Dashboard"
+NAV_EXPERIMENTS = "Experiments"
+NAV_IMAGE_INFERENCE = "Image inference"
+NAV_ANALYSIS = "Analysis & reports"
+NAV_VIDEO = "Video processing"
+NAV_PAGES = (NAV_DASHBOARD, NAV_EXPERIMENTS, NAV_IMAGE_INFERENCE, NAV_ANALYSIS, NAV_VIDEO)
+NAV_STATE_KEY = "nav_page"
+
+# Fixed by the frozen protocol (see README section 4) -- not derived from the
+# records, so shown as static project context rather than computed metrics.
+PROJECT_CONTEXT = {"Dataset": "HRIPCB_UPDATE", "Model": "YOLOv8s", "Split": "validation"}
+
+
+def _go_to(st, page: str) -> None:
+    st.session_state[NAV_STATE_KEY] = page
+    st.rerun()
+
+
+def _render_sidebar_nav(st) -> str:
+    current = st.session_state.get(NAV_STATE_KEY, NAV_DASHBOARD)
+    if current not in NAV_PAGES:
+        current = NAV_DASHBOARD
+    with st.sidebar:
+        logo_path = PROJECT_ROOT / "assets/logo.png"
+        if logo_path.is_file():
+            st.image(str(logo_path), width="stretch")
+        else:
+            st.markdown("### 🔬 HRIPCB Lab")
+        st.caption("A shared, report-ready workspace for Member 1–5 preprocessing experiments.")
+        st.caption("WORKSPACE")
+        with st.container(key="nav_list"):
+            for page in NAV_PAGES:
+                is_active = page == current
+                if st.button(
+                    page,
+                    key=f"nav_{page}",
+                    type="primary" if is_active else "secondary",
+                    width="stretch",
+                ) and not is_active:
+                    _go_to(st, page)
+        st.divider()
+        st.caption("PROJECT CONTEXT")
+        for label, value in PROJECT_CONTEXT.items():
+            st.markdown(f"**{label}**  \n{value}")
+    return current
+
+
+def _render_dashboard_home(st, records: list[dict]) -> None:
+    import pandas as pd
+
+    st.title("Dashboard")
+    st.caption("A clear starting point for running experiments, reviewing evidence, and exporting results.")
+
+    summary = record_metric_summary(records)
+    best = summary["best"]
+    cards = st.columns(4)
+    cards[0].metric("Total runs", summary["count"])
+    cards[1].metric("Combined runs", summary["combined_count"])
+    cards[2].metric("Modules", summary["module_count"])
+    cards[3].metric("Best mAP50-95", f"{_metric_value(best, 'map50_95'):.4f}" if best else "—")
+
+    st.subheader("Best combined result")
+    if best is None:
+        st.warning("No combined validation result is available yet.")
+    else:
+        with st.container(border=True):
+            info_col, action_col = st.columns([3, 1])
+            with info_col:
+                detail_cols = st.columns(4)
+                detail_cols[0].markdown(f"**Experiment**  \n`{best.get('id', '—')}`")
+                detail_cols[1].markdown(f"**Module**  \n{module_label(best.get('module'))}")
+                detail_cols[2].markdown(f"**Technique**  \n{technique_label(best.get('technique'))}")
+                detail_cols[3].markdown(f"**mAP50-95**  \n{_metric_value(best, 'map50_95'):.4f}")
+                st.caption(f"Validated on: {best.get('split', '—')}")
+            with action_col:
+                if st.button("👁️ Inspect experiment", key="dash_inspect", width="stretch"):
+                    st.session_state["compare_selected_id"] = best.get("id")
+                    _go_to(st, NAV_EXPERIMENTS)
+                if st.button("⚡ Use for inference", key="dash_use_inference", type="primary", width="stretch"):
+                    model_key, module_key, technique_key = inference_widget_keys("infer")
+                    st.session_state[model_key] = best.get("model_id", "baseline")
+                    st.session_state[module_key] = best.get("module", "all")
+                    st.session_state[technique_key] = best.get("technique", "all")
+                    st.session_state[f"infer_technique_sync"] = best.get("technique", "all")
+                    st.session_state["infer_experiment"] = best.get("id")
+                    _go_to(st, NAV_IMAGE_INFERENCE)
+
+    st.subheader("Workflow")
+    workflow = [
+        (NAV_EXPERIMENTS, "Compare experiments", "Evaluate and compare preprocessing experiments."),
+        (NAV_IMAGE_INFERENCE, "Run image inference", "Run inference on PCB images using a selected model."),
+        (NAV_ANALYSIS, "Analysis & reports", "Explore results and generate performance reports."),
+        (NAV_VIDEO, "Video processing", "Run inference and analysis on PCB inspection videos."),
+    ]
+    for page, title, caption in workflow:
+        with st.container(border=True):
+            text_col, button_col = st.columns([5, 1])
+            text_col.markdown(f"**{title}**  \n{caption}")
+            if button_col.button("→", key=f"dash_workflow_{page}"):
+                _go_to(st, page)
+
+    st.subheader("Performance overview")
+    payload = build_analysis_payload(records)
+    overview = pd.DataFrame(payload["original_vs_combined"])
+    if not overview.empty:
+        st.bar_chart(
+            overview.set_index("label")[["map50_95"]].rename(columns={"map50_95": "mAP50-95"}),
+            height=300,
+        )
 
 
 def main(results_path: Path) -> None:
@@ -1051,38 +1157,51 @@ def main(results_path: Path) -> None:
     div[data-testid="stMetric"] { background: white; border: 1px solid #dce5ef; border-radius: 16px; padding: 12px 16px; box-shadow: 0 12px 32px rgba(40,64,92,.07); }
     button[kind="primary"] { background: #2563eb; }
     [data-testid="stTabs"] button[role="tab"] { color: #172033; }
+    section[data-testid="stSidebar"] button { justify-content: flex-start; text-align: left; }
+    /* Nav list: buttons stacked with no gaps, no background, hover/active highlight only. */
+    .st-key-nav_list [data-testid="stVerticalBlock"] { gap: 0rem; }
+    .st-key-nav_list div[data-testid="stButton"] > button {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        color: #172033;
+        font-weight: 500;
+        padding: 0.6rem 0.9rem;
+    }
+    .st-key-nav_list div[data-testid="stButton"] > button:hover {
+        background: #e7edf6;
+        color: #172033;
+    }
+    .st-key-nav_list div[data-testid="stButton"] > button[kind="primary"] {
+        background: #e2e8f5;
+        color: #1d4ed8;
+        border: none;
+    }
+    .st-key-nav_list div[data-testid="stButton"] > button[kind="primary"]:hover {
+        background: #d7e1f5;
+    }
     </style>
     """, unsafe_allow_html=True)
 
     records = _load_records(results_path)
-    st.title("HRIPCB Preprocessing Lab")
-    st.caption("A shared, report-ready workspace for Member 1–5 preprocessing experiments.")
     if not records:
         st.error(f"No experiment records were found at {results_path}.")
         return
-    # segmented_control returns None until the user picks, so fall back to Run.
-    mode = st.segmented_control(
-        "Mode",
-        [MODE_RUN, MODE_STUDY],
-        default=MODE_RUN,
-        key="app_mode",
-        label_visibility="collapsed",
-    ) or MODE_RUN
-    st.caption(MODE_CAPTIONS[mode])
 
-    if mode == MODE_RUN:
-        tabs = st.tabs(["Run image inference", "Video processing"])
-        with tabs[0]:
-            _render_inference_mode(st, records)
-        with tabs[1]:
-            _render_video_mode(st, records)
-    else:
-        tabs = st.tabs(["Compare experiments", "Analysis & reports"])
-        with tabs[0]:
-            _render_comparison_mode(st, records, results_path)
-        with tabs[1]:
-            _render_analysis(st, records)
-            _render_report_tools(st, records)
+    page = _render_sidebar_nav(st)
+
+    if page == NAV_DASHBOARD:
+        _render_dashboard_home(st, records)
+    elif page == NAV_EXPERIMENTS:
+        _render_comparison_mode(st, records, results_path)
+    elif page == NAV_IMAGE_INFERENCE:
+        _render_inference_mode(st, records)
+    elif page == NAV_ANALYSIS:
+        _render_analysis(st, records)
+        _render_report_tools(st, records)
+    elif page == NAV_VIDEO:
+        _render_video_mode(st, records)
 
 
 if __name__ == "__main__":

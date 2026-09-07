@@ -161,27 +161,34 @@ def test_ranking_chart_rows_honours_a_different_metric():
     assert rows[0]["value"] == 0.9662
 
 
-def test_streamlit_dashboard_splits_into_run_and_study_modes():
+def test_streamlit_dashboard_uses_left_sidebar_navigation():
     source = Path("scripts/streamlit_dashboard.py").read_text(encoding="utf-8")
 
-    assert 'MODE_RUN = "Run detection"' in source
-    assert 'MODE_STUDY = "Study"' in source
-    assert "st.segmented_control(" in source
-    # Both tab groups exist and the four original tab labels survive.
-    assert 'st.tabs(["Run image inference", "Video processing"])' in source
-    assert 'st.tabs(["Compare experiments", "Analysis & reports"])' in source
-    # The old flat four-tab layout is gone.
-    assert 'st.tabs(["Compare experiments", "Run image inference", "Analysis & reports", "Video processing"])' not in source
+    # Five pages, reached via a left sidebar rather than a top segmented control.
+    assert 'NAV_DASHBOARD = "Dashboard"' in source
+    assert 'NAV_EXPERIMENTS = "Experiments"' in source
+    assert 'NAV_IMAGE_INFERENCE = "Image inference"' in source
+    assert 'NAV_ANALYSIS = "Analysis & reports"' in source
+    assert 'NAV_VIDEO = "Video processing"' in source
+    assert "def _render_sidebar_nav(" in source
+    assert "with st.sidebar:" in source
+    # The old top segmented-control mode toggle is gone.
+    assert "st.segmented_control(" not in source
+    assert 'st.tabs(["Run image inference", "Video processing"])' not in source
+    assert 'st.tabs(["Compare experiments", "Analysis & reports"])' not in source
 
 
-def test_streamlit_dashboard_uses_no_emoji_in_mode_labels():
+def test_streamlit_dashboard_uses_no_emoji_in_nav_page_labels():
     source = Path("scripts/streamlit_dashboard.py").read_text(encoding="utf-8")
 
-    start = source.index("MODE_RUN =")
-    end = source.index("MODE_CAPTIONS")
-    mode_block = source[start:end]
+    start = source.index("NAV_DASHBOARD =")
+    end = source.index("NAV_STATE_KEY")
+    nav_labels_block = source[start:end]
 
-    assert all(ord(character) < 128 for character in mode_block)
+    assert all(ord(character) < 128 for character in nav_labels_block)
+    # The nav buttons render the bare page name -- no icon dict, no emoji prefix.
+    assert "NAV_ICONS" not in source
+    assert 'st.button(\n                    page,' in source
 
 
 import re
