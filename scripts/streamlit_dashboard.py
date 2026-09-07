@@ -215,7 +215,14 @@ def _render_analysis(st, records: list[dict]) -> None:
             "Precision": round(row["precision"], 4),
             "Recall": round(row["recall"], 4),
         })
-    st.dataframe(primary_rows, width="stretch", hide_index=True)
+    RANK_ROW_COLORS = {1: "#FFD700", 2: "#C0C0C0", 3: "#B87333"}  # gold, silver, copper
+
+    def _highlight_top_ranks(row):
+        color = RANK_ROW_COLORS.get(row["Rank"])
+        return [f"background-color: {color}; color: #172033" if color else "" for _ in row]
+
+    primary_frame = pd.DataFrame(primary_rows)
+    st.dataframe(primary_frame.style.apply(_highlight_top_ranks, axis=1), width="stretch", hide_index=True)
     primary_chart = pd.DataFrame(payload["original_vs_combined"])
     if not primary_chart.empty:
         st.bar_chart(primary_chart.set_index("label")[["map50_95"]].rename(columns={"map50_95": "mAP50-95"}), height=300)
