@@ -1032,7 +1032,7 @@ def _render_video_mode(st, records: list[dict]) -> None:
 
 
 MODE_RUN = "Run detection"
-MODE_STUDY = "Study"
+MODE_STUDY = "Study Mode"
 MODE_CAPTIONS = {
     MODE_RUN: "Upload PCB images or video, apply a preprocessing pipeline, and compare detections before and after.",
     MODE_STUDY: "Compare every experiment, rank techniques, inspect metrics and export the report.",
