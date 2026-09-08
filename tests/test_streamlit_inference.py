@@ -96,6 +96,12 @@ def test_video_experiment_widget_avoids_duplicate_session_default():
     assert 'if "video_experiment" not in st.session_state:' in source
 
 
+def test_video_experiment_widget_repairs_stale_session_selection():
+    source = dashboard.Path("scripts/streamlit_dashboard.py").read_text(encoding="utf-8")
+
+    assert 'st.session_state["video_experiment"] = current_id' in source
+
+
 def test_module_change_applies_that_modules_best_filtering_contrast_and_experiment():
     class Streamlit:
         def __init__(self):

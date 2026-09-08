@@ -1198,6 +1198,7 @@ def _render_video_mode(st, records: list[dict]) -> None:
         current_id = st.session_state.get("video_experiment", default_id)
         if current_id not in experiment_ids:
             current_id = default_id
+            st.session_state["video_experiment"] = current_id
         experiment_kwargs = {"key": "video_experiment"}
         if "video_experiment" not in st.session_state:
             experiment_kwargs["index"] = experiment_ids.index(current_id)
