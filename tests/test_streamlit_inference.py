@@ -43,7 +43,7 @@ def test_recommended_preset_updates_widget_state_before_rendering_widgets():
         "id": "member1-gaussian",
         "model_id": "yolov8s",
         "module": "member1",
-        "technique": "gaussian_clahe",
+        "technique": "gaussian_bbhe",
     }
 
     dashboard._queue_inference_preset(streamlit, recommended, key_prefix="infer")
@@ -53,7 +53,7 @@ def test_recommended_preset_updates_widget_state_before_rendering_widgets():
             "experiment": "member1-gaussian",
             "model": "yolov8s",
             "module": "member1",
-            "technique": "gaussian_clahe",
+            "technique": "gaussian_bbhe",
         }
     }
 
@@ -62,9 +62,38 @@ def test_recommended_preset_updates_widget_state_before_rendering_widgets():
     assert streamlit.session_state == {
         "infer_model": "yolov8s",
         "infer_module": "member1",
-        "infer_technique": "gaussian_clahe",
+        "infer_technique": "gaussian_bbhe",
+        "infer_filtering": "gaussian",
+        "infer_contrast": "bbhe",
+        "infer_technique_sync": "gaussian_bbhe",
         "infer_experiment": "member1-gaussian",
     }
+
+
+def test_default_recommendation_seeds_filtering_and_contrast_for_image_and_video():
+    recommended = {
+        "id": "member5-tv",
+        "model_id": "baseline",
+        "module": "member5",
+        "technique": "tv_top_black_hat",
+    }
+
+    for key_prefix in ("infer", "video"):
+        class Streamlit:
+            session_state = {}
+
+        streamlit = Streamlit()
+        dashboard._default_to_recommendation(streamlit, recommended, key_prefix=key_prefix)
+
+        assert streamlit.session_state[f"{key_prefix}_filtering"] == "tv"
+        assert streamlit.session_state[f"{key_prefix}_contrast"] == "top_black_hat"
+        assert streamlit.session_state[f"{key_prefix}_technique_sync"] == "tv_top_black_hat"
+
+
+def test_video_experiment_widget_avoids_duplicate_session_default():
+    source = dashboard.Path("scripts/streamlit_dashboard.py").read_text(encoding="utf-8")
+
+    assert 'if "video_experiment" not in st.session_state:' in source
 
 
 def test_progress_update_reports_batch_position():

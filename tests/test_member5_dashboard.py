@@ -181,7 +181,7 @@ def test_streamlit_member5_parameter_panel_names_all_controls():
     assert "MEMBER5_PARAMETER_KEYS" in source
     for parameter in ("tv_weight", "morphology_kernel_size", "top_hat_amount", "black_hat_amount"):
         assert parameter in source
-    assert "Member 1–5" in source
+    assert "team preprocessing experiments" in source
 
 
 class _MetricColumn:

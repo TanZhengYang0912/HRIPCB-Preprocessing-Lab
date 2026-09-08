@@ -90,6 +90,14 @@ def test_streamlit_dashboard_displays_modules_through_module_label():
     assert "{recommended.get('module', '—')} /" not in source
 
 
+def test_inference_module_widgets_use_display_names_and_no_member_number_copy():
+    source = Path("scripts/streamlit_dashboard.py").read_text(encoding="utf-8")
+
+    assert 'key=module_key, format_func=_module_option_label' in source
+    assert "Member 1–5 preprocessing experiments" not in source
+    assert "Member 2 final assignment preset" not in source
+
+
 from hripcb_dashboard.reporting import record_metric_summary
 
 

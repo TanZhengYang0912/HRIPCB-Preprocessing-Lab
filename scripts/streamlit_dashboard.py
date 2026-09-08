@@ -481,6 +481,17 @@ def _queue_inference_preset(st, recommended: dict, *, key_prefix: str) -> None:
     }
 
 
+def _set_inference_technique_state(st, technique: str, *, key_prefix: str) -> None:
+    """Keep the combined technique and its two visible stage widgets aligned."""
+
+    technique_key = inference_widget_keys(key_prefix)[2]
+    filtering_default, contrast_default = _decompose_technique(technique)
+    st.session_state[technique_key] = technique
+    st.session_state[f"{key_prefix}_filtering"] = filtering_default
+    st.session_state[f"{key_prefix}_contrast"] = contrast_default
+    st.session_state[f"{key_prefix}_technique_sync"] = technique
+
+
 def _apply_pending_inference_preset(st, *, key_prefix: str) -> None:
     """Apply a queued preset before Streamlit instantiates its widgets."""
 
@@ -490,10 +501,10 @@ def _apply_pending_inference_preset(st, *, key_prefix: str) -> None:
         return
 
     del st.session_state[pending_key]
-    model_key, module_key, technique_key = inference_widget_keys(key_prefix)
+    model_key, module_key, _ = inference_widget_keys(key_prefix)
     st.session_state[model_key] = pending["model"]
     st.session_state[module_key] = pending["module"]
-    st.session_state[technique_key] = pending["technique"]
+    _set_inference_technique_state(st, pending["technique"], key_prefix=key_prefix)
     st.session_state[f"{key_prefix}_experiment"] = pending["experiment"]
 
 
@@ -579,7 +590,7 @@ def _render_inference_filters(st, records: list[dict], *, key_prefix: str = "inf
     with module_col:
         module_options = option_values(records, model=selection["model"])["module"]
         selection["module"] = _select_value(
-            st, "Module", module_options, key=module_key
+            st, "Module", module_options, key=module_key, format_func=_module_option_label
         )
     selection = normalize_selection(records, selection)
 
@@ -656,7 +667,7 @@ def _render_active_experiment(st, record: dict, *, heading: str = "Active experi
 
 
 def _render_recommendation_extras(st, records: list[dict]) -> None:
-    """Member 2's required-combo note and the full best-by-module table.
+    """Extra study's required-combo note and the full best-by-module table.
 
     The headline recommendation (id, score, model/module/technique, and the
     "use recommended preset" action) now lives in each page's own Preset
@@ -671,7 +682,7 @@ def _render_recommendation_extras(st, records: list[dict]) -> None:
         parameters = member2.get("parameters", {})
         level = parameters.get("wavelet_levels")
         st.info(
-            "Member 2 final assignment preset (Wavelet → Homomorphic): "
+            "Extra study final assignment preset (Wavelet → Homomorphic): "
             f"{parameters.get('wavelet_name')} / {parameters.get('wavelet_method')} / "
             f"{parameters.get('wavelet_mode')} / level {'auto' if level is None else level}; "
             f"γL={parameters.get('homomorphic_gamma_low')}, "
@@ -906,12 +917,14 @@ def _default_to_recommendation(st, recommended: dict | None, *, key_prefix: str)
 
     if recommended is None:
         return
-    model_key, module_key, technique_key = inference_widget_keys(key_prefix)
+    model_key, module_key, _ = inference_widget_keys(key_prefix)
     if model_key in st.session_state:
         return
     st.session_state[model_key] = recommended.get("model_id", "baseline")
     st.session_state[module_key] = recommended.get("module", "all")
-    st.session_state[technique_key] = recommended.get("technique", "all")
+    _set_inference_technique_state(
+        st, recommended.get("technique", "all"), key_prefix=key_prefix
+    )
     st.session_state[f"{key_prefix}_experiment"] = recommended.get("id")
 
 
@@ -1157,9 +1170,10 @@ def _render_video_mode(st, records: list[dict]) -> None:
         current_id = st.session_state.get("video_experiment", default_id)
         if current_id not in experiment_ids:
             current_id = default_id
-        selected_id = st.selectbox(
-            "Experiment", experiment_ids, index=experiment_ids.index(current_id), key="video_experiment"
-        )
+        experiment_kwargs = {"key": "video_experiment"}
+        if "video_experiment" not in st.session_state:
+            experiment_kwargs["index"] = experiment_ids.index(current_id)
+        selected_id = st.selectbox("Experiment", experiment_ids, **experiment_kwargs)
         selected = next(record for record in candidates if record["id"] == selected_id)
 
         if recommended is not None and selected_id == recommended.get("id"):
@@ -1327,7 +1341,7 @@ def _render_sidebar_nav(st) -> str:
             st.image(str(logo_path), width="stretch")
         else:
             st.markdown("### 🔬 HRIPCB Lab")
-        st.caption("A shared, report-ready workspace for Member 1–5 preprocessing experiments.")
+        st.caption("A shared, report-ready workspace for team preprocessing experiments.")
         st.caption("WORKSPACE")
         with st.container(key="nav_list"):
             for page in NAV_PAGES:
@@ -1378,12 +1392,7 @@ def _render_dashboard_home(st, records: list[dict]) -> None:
                     st.session_state["compare_selected_id"] = best.get("id")
                     _go_to(st, NAV_EXPERIMENTS)
                 if st.button("⚡ Use for inference", key="dash_use_inference", type="primary", width="stretch"):
-                    model_key, module_key, technique_key = inference_widget_keys("infer")
-                    st.session_state[model_key] = best.get("model_id", "baseline")
-                    st.session_state[module_key] = best.get("module", "all")
-                    st.session_state[technique_key] = best.get("technique", "all")
-                    st.session_state[f"infer_technique_sync"] = best.get("technique", "all")
-                    st.session_state["infer_experiment"] = best.get("id")
+                    _queue_inference_preset(st, best, key_prefix="infer")
                     _go_to(st, NAV_IMAGE_INFERENCE)
 
     st.subheader("Workflow")
