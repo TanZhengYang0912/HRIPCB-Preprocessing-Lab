@@ -895,6 +895,26 @@ def _render_step_indicator(st, steps: list[str], current_index: int) -> None:
     )
 
 
+def _default_to_recommendation(st, recommended: dict | None, *, key_prefix: str) -> None:
+    """Seed the Model/Module/Technique/Experiment widgets with the best
+    combined result the first time this page renders, so it's the default
+    on load rather than only after clicking "Use recommended preset".
+
+    Only fires once per session (guarded on the model key being unset) so a
+    user's own later choices are never overwritten on a later rerun.
+    """
+
+    if recommended is None:
+        return
+    model_key, module_key, technique_key = inference_widget_keys(key_prefix)
+    if model_key in st.session_state:
+        return
+    st.session_state[model_key] = recommended.get("model_id", "baseline")
+    st.session_state[module_key] = recommended.get("module", "all")
+    st.session_state[technique_key] = recommended.get("technique", "all")
+    st.session_state[f"{key_prefix}_experiment"] = recommended.get("id")
+
+
 def _render_scroll_anchor(st, anchor_id: str) -> None:
     """Mark a spot in the page and scroll it into view on this run only.
 
@@ -932,6 +952,7 @@ def _render_inference_mode(st, records: list[dict]) -> None:
     )
 
     recommended = best_experiment(records)
+    _default_to_recommendation(st, recommended, key_prefix="infer")
     preset_col, upload_col = st.columns(2)
 
     with preset_col, st.container(border=True):
@@ -946,9 +967,10 @@ def _render_inference_mode(st, records: list[dict]) -> None:
             st.warning("No inference preset matches the selected model, module, and technique.")
             return
         experiment_ids = [record["id"] for record in candidates]
-        current_id = st.session_state.get("infer_experiment", experiment_ids[0])
+        default_id = recommended.get("id") if recommended and recommended.get("id") in experiment_ids else experiment_ids[0]
+        current_id = st.session_state.get("infer_experiment", default_id)
         if current_id not in experiment_ids:
-            current_id = experiment_ids[0]
+            current_id = default_id
             st.session_state["infer_experiment"] = current_id
         experiment_kwargs = {"key": "infer_experiment"}
         if "infer_experiment" not in st.session_state:
@@ -966,10 +988,15 @@ def _render_inference_mode(st, records: list[dict]) -> None:
 
         if recommended is not None:
             with st.container(border=True):
-                info_col, score_col = st.columns([3, 1])
+                info_col, score_col = st.columns([2, 1])
                 info_col.caption("Best combined experiment")
                 info_col.markdown(f"**{recommended.get('id', '—')}**")
-                score_col.metric("mAP50-95", f"{_metric_value(recommended, 'map50_95'):.4f}")
+                score_col.caption("mAP50-95")
+                score_col.markdown(
+                    f"<span style='font-size:1.5rem;font-weight:700;white-space:nowrap;'>"
+                    f"{_metric_value(recommended, 'map50_95'):.4f}</span>",
+                    unsafe_allow_html=True,
+                )
 
         detail_cols = st.columns(3)
         detail_cols[0].caption("Model")
@@ -1111,6 +1138,7 @@ def _render_video_mode(st, records: list[dict]) -> None:
     )
 
     recommended = best_experiment(records)
+    _default_to_recommendation(st, recommended, key_prefix="video")
     preset_col, upload_col = st.columns(2)
 
     with preset_col, st.container(border=True):
@@ -1125,9 +1153,10 @@ def _render_video_mode(st, records: list[dict]) -> None:
             st.warning("No video preset matches the selected model, module, and technique.")
             return
         experiment_ids = [record["id"] for record in candidates]
-        current_id = st.session_state.get("video_experiment", experiment_ids[0])
+        default_id = recommended.get("id") if recommended and recommended.get("id") in experiment_ids else experiment_ids[0]
+        current_id = st.session_state.get("video_experiment", default_id)
         if current_id not in experiment_ids:
-            current_id = experiment_ids[0]
+            current_id = default_id
         selected_id = st.selectbox(
             "Experiment", experiment_ids, index=experiment_ids.index(current_id), key="video_experiment"
         )
@@ -1143,10 +1172,15 @@ def _render_video_mode(st, records: list[dict]) -> None:
 
         if recommended is not None:
             with st.container(border=True):
-                info_col, score_col = st.columns([3, 1])
+                info_col, score_col = st.columns([2, 1])
                 info_col.caption("Recommended best combined experiment")
                 info_col.markdown(f"**{recommended.get('id', '—')}**")
-                score_col.metric("mAP50-95", f"{_metric_value(recommended, 'map50_95'):.4f}")
+                score_col.caption("mAP50-95")
+                score_col.markdown(
+                    f"<span style='font-size:1.5rem;font-weight:700;white-space:nowrap;'>"
+                    f"{_metric_value(recommended, 'map50_95'):.4f}</span>",
+                    unsafe_allow_html=True,
+                )
 
         detail_cols = st.columns(3)
         detail_cols[0].caption("Model")
