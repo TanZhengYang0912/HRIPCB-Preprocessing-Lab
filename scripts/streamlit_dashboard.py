@@ -470,6 +470,33 @@ def _select_optional(st, label: str, values: list[str], *, key: str) -> str:
     return st.selectbox(label, choices, **kwargs)
 
 
+def _queue_inference_preset(st, recommended: dict, *, key_prefix: str) -> None:
+    """Defer preset state changes until before the next widget render."""
+
+    st.session_state[f"{key_prefix}_pending_preset"] = {
+        "experiment": recommended.get("id"),
+        "model": recommended.get("model_id", "baseline"),
+        "module": recommended.get("module", "all"),
+        "technique": recommended.get("technique", "all"),
+    }
+
+
+def _apply_pending_inference_preset(st, *, key_prefix: str) -> None:
+    """Apply a queued preset before Streamlit instantiates its widgets."""
+
+    pending_key = f"{key_prefix}_pending_preset"
+    pending = st.session_state.get(pending_key)
+    if pending is None:
+        return
+
+    del st.session_state[pending_key]
+    model_key, module_key, technique_key = inference_widget_keys(key_prefix)
+    st.session_state[model_key] = pending["model"]
+    st.session_state[module_key] = pending["module"]
+    st.session_state[technique_key] = pending["technique"]
+    st.session_state[f"{key_prefix}_experiment"] = pending["experiment"]
+
+
 def _render_comparison_filters(st, records: list[dict]) -> dict[str, str]:
     keys = {field: f"compare_{field}" for field in FILTER_FIELDS}
     selection = {
@@ -890,6 +917,7 @@ def _render_scroll_anchor(st, anchor_id: str) -> None:
 
 
 def _render_inference_mode(st, records: list[dict]) -> None:
+    _apply_pending_inference_preset(st, key_prefix="infer")
     _render_page_header(
         st,
         page=NAV_IMAGE_INFERENCE,
@@ -956,11 +984,7 @@ def _render_inference_mode(st, records: list[dict]) -> None:
             if recommended is not None and st.button(
                 "Use recommended preset", key="use_recommended_infer", type="primary", width="stretch"
             ):
-                model_key, module_key, technique_key = inference_widget_keys("infer")
-                st.session_state[model_key] = recommended.get("model_id", "baseline")
-                st.session_state[module_key] = recommended.get("module", "all")
-                st.session_state[technique_key] = recommended.get("technique", "all")
-                st.session_state["infer_experiment"] = recommended.get("id")
+                _queue_inference_preset(st, recommended, key_prefix="infer")
                 st.rerun()
         with button_col2:
             show_params = st.session_state.get("infer_show_params", False)
@@ -1073,6 +1097,7 @@ def _render_inference_mode(st, records: list[dict]) -> None:
 
 
 def _render_video_mode(st, records: list[dict]) -> None:
+    _apply_pending_inference_preset(st, key_prefix="video")
     _render_page_header(
         st,
         page=NAV_VIDEO,
@@ -1136,11 +1161,7 @@ def _render_video_mode(st, records: list[dict]) -> None:
             if recommended is not None and st.button(
                 "Use recommended preset", key="use_recommended_video", type="primary", width="stretch"
             ):
-                model_key, module_key, technique_key = inference_widget_keys("video")
-                st.session_state[model_key] = recommended.get("model_id", "baseline")
-                st.session_state[module_key] = recommended.get("module", "all")
-                st.session_state[technique_key] = recommended.get("technique", "all")
-                st.session_state["video_experiment"] = recommended.get("id")
+                _queue_inference_preset(st, recommended, key_prefix="video")
                 st.rerun()
         with button_col2:
             show_params = st.session_state.get("video_show_params", False)
