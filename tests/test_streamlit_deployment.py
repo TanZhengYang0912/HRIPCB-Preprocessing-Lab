@@ -13,13 +13,40 @@ def test_streamlit_cloud_has_one_complete_requirements_manifest():
 
     requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
     for dependency in (
-        "streamlit>=",
-        "pandas>=",
-        "numpy>=",
-        "opencv-python-headless>=",
-        "ultralytics-opencv-headless>=",
+        "streamlit",
+        "pandas",
+        "numpy",
+        "opencv-python-headless",
+        "ultralytics-opencv-headless",
     ):
         assert dependency in requirements
+
+
+def test_streamlit_cloud_runtime_versions_are_reproducible():
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    for dependency in (
+        "Pillow==12.2.0",
+        "PyYAML==6.0.3",
+        "pytest==8.4.2",
+        "streamlit==1.62.0",
+        "reportlab==5.0.1",
+        "pandas==2.3.2",
+        "ultralytics-opencv-headless==8.4.126",
+        "torch==2.13.0",
+        "torchvision==0.28.0",
+        "numpy==2.5.2",
+        "opencv-python-headless==5.0.0.93",
+        "scikit-image==0.26.0",
+        "PyWavelets==1.9.0",
+    ):
+        assert dependency in requirements
+
+
+def test_streamlit_cloud_does_not_use_expired_apt_dependency_source():
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert not (PROJECT_ROOT / "packages.txt").exists()
+    assert "imageio-ffmpeg==0.6.0" in requirements
 
 
 def test_default_results_path_is_project_relative(monkeypatch, tmp_path):

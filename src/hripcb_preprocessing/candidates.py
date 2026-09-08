@@ -136,6 +136,22 @@ def _apply_wavelet(image, parameters: dict):
     )
 
 
+def _msr_keyword_arguments(parameters: dict) -> dict:
+    sigmas = tuple(parameters[f"msr_sigma_{index}"] for index in range(1, 4))
+    keyword_arguments: dict = {
+        "sigmas": sigmas,
+        "processing_max_side": int(parameters.get("msr_processing_max_side", 1024)),
+        "luminance_only": bool(parameters.get("msr_luminance_only", True)),
+        "blend_alpha": float(parameters.get("msr_blend_alpha", 0.5)),
+    }
+    if "msr_normalization_low" in parameters and "msr_normalization_high" in parameters:
+        keyword_arguments["normalization_range"] = (
+            float(parameters["msr_normalization_low"]),
+            float(parameters["msr_normalization_high"]),
+        )
+    return keyword_arguments
+
+
 def _apply_homomorphic(image, parameters: dict):
     return apply_homomorphic_filter(
         image,
@@ -268,7 +284,18 @@ def build_candidates(module: str, config: dict) -> list[dict]:
         nlm = config["nlm_presets"]
         msr = config["msr_presets"]
         nlm_processing_max_side = int(config.get("nlm_processing_max_side", 768))
-        msr_processing_max_side = int(config.get("msr_processing_max_side", 768))
+        msr_processing_max_side = int(config.get("msr_processing_max_side", 1024))
+        msr_luminance_only = bool(config.get("msr_luminance_only", True))
+        msr_blend_alpha = float(config.get("msr_blend_alpha", 0.5))
+        msr_normalization_range = config.get("msr_normalization_range", (-1.5, 1.5))
+        msr_extra_parameters = {
+            "msr_processing_max_side": msr_processing_max_side,
+            "msr_luminance_only": msr_luminance_only,
+            "msr_blend_alpha": msr_blend_alpha,
+        }
+        if msr_normalization_range is not None:
+            msr_extra_parameters["msr_normalization_low"] = float(msr_normalization_range[0])
+            msr_extra_parameters["msr_normalization_high"] = float(msr_normalization_range[1])
         for preset in nlm:
             parameters = {
                 "nlm_h": float(preset["h"]),
@@ -280,8 +307,10 @@ def build_candidates(module: str, config: dict) -> list[dict]:
             candidates.append(_candidate(f"nlm_{preset['id']}", module, "nlm", parameters))
         for preset in msr:
             sigmas = [float(value) for value in preset["sigmas"]]
-            parameters = {f"msr_sigma_{index + 1}": value for index, value in enumerate(sigmas)}
-            parameters["msr_processing_max_side"] = msr_processing_max_side
+            parameters = {
+                f"msr_sigma_{index + 1}": value for index, value in enumerate(sigmas)
+            }
+            parameters.update(msr_extra_parameters)
             candidates.append(_candidate(f"msr_{preset['id']}", module, "msr", parameters))
         for nlm_preset in nlm:
             for msr_preset in msr:
@@ -292,8 +321,8 @@ def build_candidates(module: str, config: dict) -> list[dict]:
                     "nlm_template_window": int(nlm_preset["template_window"]),
                     "nlm_search_window": int(nlm_preset["search_window"]),
                     "nlm_processing_max_side": nlm_processing_max_side,
-                    "msr_processing_max_side": msr_processing_max_side,
                     **{f"msr_sigma_{index + 1}": value for index, value in enumerate(sigmas)},
+                    **msr_extra_parameters,
                 }
                 candidates.append(_candidate(f"nlm_{nlm_preset['id']}_msr_{msr_preset['id']}", module, "nlm_msr", parameters))
         return candidates
@@ -343,10 +372,8 @@ def apply_candidate(image, candidate):
             int(parameters.get("nlm_processing_max_side", 768)),
         )
     if technique == "msr":
-        sigmas = tuple(parameters[f"msr_sigma_{index}"] for index in range(1, 4))
-        return apply_multi_scale_retinex(image, sigmas, int(parameters.get("msr_processing_max_side", 768)))
+        return apply_multi_scale_retinex(image, **_msr_keyword_arguments(parameters))
     if technique == "nlm_msr":
-        sigmas = tuple(parameters[f"msr_sigma_{index}"] for index in range(1, 4))
         return apply_multi_scale_retinex(
             apply_non_local_means(
                 image,
@@ -356,8 +383,7 @@ def apply_candidate(image, candidate):
                 int(parameters["nlm_search_window"]),
                 int(parameters.get("nlm_processing_max_side", 768)),
             ),
-            sigmas,
-            int(parameters.get("msr_processing_max_side", 768)),
+            **_msr_keyword_arguments(parameters),
         )
     if technique == "tv":
         return apply_tv_denoise(image, weight=parameters["tv_weight"])

@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import altair as alt
@@ -214,7 +215,14 @@ def _render_analysis(st, records: list[dict]) -> None:
             "Precision": round(row["precision"], 4),
             "Recall": round(row["recall"], 4),
         })
-    st.dataframe(primary_rows, width="stretch", hide_index=True)
+    RANK_ROW_COLORS = {1: "#FFD700", 2: "#C0C0C0", 3: "#B87333"}  # gold, silver, copper
+
+    def _highlight_top_ranks(row):
+        color = RANK_ROW_COLORS.get(row["Rank"])
+        return [f"background-color: {color}; color: #172033" if color else "" for _ in row]
+
+    primary_frame = pd.DataFrame(primary_rows)
+    st.dataframe(primary_frame.style.apply(_highlight_top_ranks, axis=1), width="stretch", hide_index=True)
     primary_chart = pd.DataFrame(payload["original_vs_combined"])
     if not primary_chart.empty:
         st.bar_chart(primary_chart.set_index("label")[["map50_95"]].rename(columns={"map50_95": "mAP50-95"}), height=300)
@@ -424,6 +432,71 @@ def _select_value(st, label: str, values: list[str], *, key: str, format_func=_o
     return st.selectbox(label, choices, **kwargs)
 
 
+# The Technique dropdown is split into "Filtering" (noise removal) and
+# "Contrast" (enhancement) pickers. Both stages come from the same existing
+# per-module technique pairs already used by the analysis module, so this is
+# purely a presentation split: no new technique values are introduced and no
+# preprocessing code is touched. Either side can be left as "Don't apply".
+DONT_APPLY = "dont_apply"
+NOISE_TECHNIQUES = {pair[0] for pair in MEMBER_TECHNIQUES.values()}
+CONTRAST_TECHNIQUES = {pair[1] for pair in MEMBER_TECHNIQUES.values()}
+_MODULE_BY_NOISE = {pair[0]: module for module, pair in MEMBER_TECHNIQUES.items()}
+_MODULE_BY_CONTRAST = {pair[1]: module for module, pair in MEMBER_TECHNIQUES.items()}
+
+
+def _decompose_technique(technique: str) -> tuple[str, str]:
+    """Split an existing technique value into its (filtering, contrast) parts."""
+
+    if technique in NOISE_TECHNIQUES:
+        return technique, DONT_APPLY
+    if technique in CONTRAST_TECHNIQUES:
+        return DONT_APPLY, technique
+    for noise, contrast in MEMBER_TECHNIQUES.values():
+        if technique == f"{noise}_{contrast}":
+            return noise, contrast
+    return DONT_APPLY, DONT_APPLY
+
+
+def _select_optional(st, label: str, values: list[str], *, key: str) -> str:
+    choices = [DONT_APPLY, *values]
+    current = st.session_state.get(key, DONT_APPLY)
+    if current not in choices:
+        current = DONT_APPLY
+        st.session_state[key] = current
+    format_func = lambda value: "Don't apply" if value == DONT_APPLY else technique_label(value)
+    kwargs = {"format_func": format_func, "key": key}
+    if key not in st.session_state:
+        kwargs["index"] = choices.index(current)
+    return st.selectbox(label, choices, **kwargs)
+
+
+def _queue_inference_preset(st, recommended: dict, *, key_prefix: str) -> None:
+    """Defer preset state changes until before the next widget render."""
+
+    st.session_state[f"{key_prefix}_pending_preset"] = {
+        "experiment": recommended.get("id"),
+        "model": recommended.get("model_id", "baseline"),
+        "module": recommended.get("module", "all"),
+        "technique": recommended.get("technique", "all"),
+    }
+
+
+def _apply_pending_inference_preset(st, *, key_prefix: str) -> None:
+    """Apply a queued preset before Streamlit instantiates its widgets."""
+
+    pending_key = f"{key_prefix}_pending_preset"
+    pending = st.session_state.get(pending_key)
+    if pending is None:
+        return
+
+    del st.session_state[pending_key]
+    model_key, module_key, technique_key = inference_widget_keys(key_prefix)
+    st.session_state[model_key] = pending["model"]
+    st.session_state[module_key] = pending["module"]
+    st.session_state[technique_key] = pending["technique"]
+    st.session_state[f"{key_prefix}_experiment"] = pending["experiment"]
+
+
 def _render_comparison_filters(st, records: list[dict]) -> dict[str, str]:
     keys = {field: f"compare_{field}" for field in FILTER_FIELDS}
     selection = {
@@ -497,7 +570,7 @@ def _render_inference_filters(st, records: list[dict], *, key_prefix: str = "inf
     st.session_state[module_key] = selection["module"]
     st.session_state[technique_key] = selection["technique"]
 
-    model_col, module_col, technique_col = st.columns(3)
+    model_col, module_col, filtering_col, contrast_col = st.columns(4)
     with model_col:
         selection["model"] = _select_value(
             st, "Model", option_values(records)["model"], key=model_key
@@ -509,13 +582,47 @@ def _render_inference_filters(st, records: list[dict], *, key_prefix: str = "inf
             st, "Module", module_options, key=module_key
         )
     selection = normalize_selection(records, selection)
-    with technique_col:
-        technique_options = option_values(
-            records, model=selection["model"], module=selection["module"]
-        )["technique"]
-        selection["technique"] = _select_value(
-            st, "Technique", technique_options, key=technique_key
-        )
+
+    technique_options = option_values(
+        records, model=selection["model"], module=selection["module"]
+    )["technique"]
+
+    # Filtering and Contrast are two views onto the same "technique" selection,
+    # so keep them in sync with technique_key rather than owning state of
+    # their own: resync from technique_key whenever it changed outside these
+    # two widgets (e.g. the "Use recommended experiment" button below).
+    filtering_key, contrast_key = f"{key_prefix}_filtering", f"{key_prefix}_contrast"
+    sync_key = f"{key_prefix}_technique_sync"
+    if st.session_state.get(sync_key) != selection["technique"]:
+        filtering_default, contrast_default = _decompose_technique(selection["technique"])
+        st.session_state[filtering_key] = filtering_default
+        st.session_state[contrast_key] = contrast_default
+
+    with filtering_col:
+        filtering_options = sorted(NOISE_TECHNIQUES & set(technique_options))
+        filtering_choice = _select_optional(st, "Filtering", filtering_options, key=filtering_key)
+    with contrast_col:
+        contrast_options = sorted(CONTRAST_TECHNIQUES & set(technique_options))
+        if filtering_choice != DONT_APPLY:
+            paired_module = _MODULE_BY_NOISE.get(filtering_choice)
+            contrast_options = [
+                value for value in contrast_options if _MODULE_BY_CONTRAST.get(value) == paired_module
+            ]
+        contrast_choice = _select_optional(st, "Contrast", contrast_options, key=contrast_key)
+
+    if filtering_choice == DONT_APPLY and contrast_choice == DONT_APPLY:
+        selection["technique"] = "all"
+    elif contrast_choice == DONT_APPLY:
+        selection["technique"] = filtering_choice
+    elif filtering_choice == DONT_APPLY:
+        selection["technique"] = contrast_choice
+    else:
+        selection["technique"] = f"{filtering_choice}_{contrast_choice}"
+    if selection["technique"] not in {"all", *technique_options}:
+        selection["technique"] = "all"
+
+    st.session_state[technique_key] = selection["technique"]
+    st.session_state[sync_key] = selection["technique"]
     selection = normalize_selection(records, selection)
     return selection
 
@@ -548,26 +655,13 @@ def _render_active_experiment(st, record: dict, *, heading: str = "Active experi
         st.json(parameters)
 
 
-def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer") -> None:
-    recommended = best_experiment(records)
-    st.subheader("Recommended best combined experiment")
-    st.caption("Recommendation rule: val split + ablation evaluation + combined technique + highest mAP50-95.")
-    if recommended is None:
-        st.warning("No validation ablation result is available for recommendation.")
-        return
+def _render_recommendation_extras(st, records: list[dict]) -> None:
+    """Member 2's required-combo note and the full best-by-module table.
 
-    score = float(recommended.get("metrics", {}).get("map50_95", 0))
-    st.success(
-        f"{recommended.get('id', '—')} · "
-        f"{recommended.get('model_label', recommended.get('model_id', 'baseline'))} · "
-        f"{module_label(recommended.get('module'))} / {technique_label(recommended.get('technique'))}"
-    )
-    cards = st.columns(4)
-    cards[0].metric("Recommended mAP50-95", f"{score:.4f}")
-    cards[1].metric("Model", recommended.get("model_id", "baseline"))
-    cards[2].metric("Module", module_label(recommended.get("module")))
-    cards[3].metric("Technique", technique_label(recommended.get("technique")))
-    st.caption(f"Parameters: {json.dumps(recommended.get('parameters', {}), sort_keys=True)}")
+    The headline recommendation (id, score, model/module/technique, and the
+    "use recommended preset" action) now lives in each page's own Preset
+    card; this covers the remaining detail that card doesn't show.
+    """
 
     member2 = next(
         (row for row in best_by_module(records) if row.get("module") == "member2"),
@@ -586,13 +680,6 @@ def _render_recommendation(st, records: list[dict], *, key_prefix: str = "infer"
             f"sharpness={parameters.get('homomorphic_sharpness')}; "
             f"validation mAP50-95={_metric_value(member2, 'map50_95'):.4f}."
         )
-    if st.button("Use recommended experiment", key=f"use_recommended_{key_prefix}"):
-        model_key, module_key, technique_key = inference_widget_keys(key_prefix)
-        st.session_state[model_key] = recommended.get("model_id", "baseline")
-        st.session_state[module_key] = recommended.get("module", "all")
-        st.session_state[technique_key] = recommended.get("technique", "all")
-        st.session_state[f"{key_prefix}_experiment"] = recommended.get("id")
-        st.rerun()
 
     module_rows = best_by_module(records)
     if module_rows:
@@ -768,47 +855,177 @@ def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None
         })
 
 
-def _render_inference_mode(st, records: list[dict]) -> None:
-    st.header("Run image inference")
-    st.caption("Select a model and preprocessing preset independently from the comparison table.")
-    _render_recommendation(st, records)
-    selection = _render_inference_filters(st, records)
-    candidates = filter_records(
-        records,
-        model=selection["model"],
-        module=selection["module"],
-        technique=selection["technique"],
+def _render_page_header(st, *, page: str, title: str, subtitle: str) -> None:
+    """Breadcrumb + title + subtitle shared by the workbench-style pages."""
+
+    st.markdown(
+        "<div style='color:#8a97ab;font-size:0.85rem;margin-bottom:0.5rem;'>"
+        "&#8598; Workspace &nbsp;&rsaquo;&nbsp; "
+        f"<span style='color:#dc2626;font-weight:600;'>{page}</span></div>",
+        unsafe_allow_html=True,
     )
-    if not candidates:
-        st.warning("No inference preset matches the selected model, module, and technique.")
-        return
-    experiment_ids = [record["id"] for record in candidates]
-    current_id = st.session_state.get("infer_experiment", experiment_ids[0])
-    if current_id not in experiment_ids:
-        current_id = experiment_ids[0]
-        st.session_state["infer_experiment"] = current_id
-    experiment_kwargs = {"key": "infer_experiment"}
-    if "infer_experiment" not in st.session_state:
-        experiment_kwargs["index"] = experiment_ids.index(current_id)
-    selected_id = st.selectbox("Parameter preset / experiment", experiment_ids, **experiment_kwargs)
-    selected = next(record for record in candidates if record["id"] == selected_id)
-    _render_active_experiment(st, selected)
+    st.title(title)
+    st.caption(subtitle)
+
+
+def _render_step_indicator(st, steps: list[str], current_index: int) -> None:
+    """A decorative horizontal stepper: done / active / upcoming."""
+
+    parts = []
+    for index, label in enumerate(steps):
+        if index < current_index:
+            circle_style, text_color = "background:#059669;color:white;", "#059669"
+        elif index == current_index:
+            circle_style, text_color = "background:#2563eb;color:white;", "#172033"
+        else:
+            circle_style, text_color = "background:white;color:#8a97ab;border:1px solid #d7deea;", "#8a97ab"
+        parts.append(
+            "<div style='display:flex;align-items:center;gap:0.5rem;'>"
+            "<div style='width:1.6rem;height:1.6rem;border-radius:50%;display:flex;"
+            f"align-items:center;justify-content:center;font-size:0.8rem;font-weight:600;{circle_style}'>"
+            f"{index + 1}</div><span style='color:{text_color};font-weight:600;font-size:0.9rem;'>"
+            f"{label}</span></div>"
+        )
+        if index != len(steps) - 1:
+            parts.append("<div style='flex:1;height:1px;background:#d7deea;margin:0 0.9rem;'></div>")
+    st.markdown(
+        "<div style='display:flex;align-items:center;padding:1rem 1.25rem;background:white;"
+        "border:1px solid #e3e9f2;border-radius:14px;margin-bottom:1.1rem;'>" + "".join(parts) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_scroll_anchor(st, anchor_id: str) -> None:
+    """Mark a spot in the page and scroll it into view on this run only.
+
+    Used right above a results section so the page jumps to it once
+    processing finishes, without affecting any later, unrelated rerun.
+    """
+
+    st.markdown(f'<div id="{anchor_id}"></div>', unsafe_allow_html=True)
+    st.components.v1.html(
+        f"""
+        <script>
+        const target = window.parent.document.getElementById("{anchor_id}");
+        if (target) {{
+            target.scrollIntoView({{behavior: "smooth", block: "start"}});
+        }}
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _render_inference_mode(st, records: list[dict]) -> None:
+    _apply_pending_inference_preset(st, key_prefix="infer")
+    _render_page_header(
+        st,
+        page=NAV_IMAGE_INFERENCE,
+        title="Image processing workbench",
+        subtitle="Evaluate a preprocessing preset on real PCB images.",
+    )
+
+    uploads_key = _image_upload_key(st)
+    has_uploads = bool(st.session_state.get(uploads_key))
+    _render_step_indicator(
+        st, ["Select preset", "Upload images", "Review results"], 1 if has_uploads else 0
+    )
+
+    recommended = best_experiment(records)
+    preset_col, upload_col = st.columns(2)
+
+    with preset_col, st.container(border=True):
+        header_col, badge_col = st.columns([3, 2])
+        header_col.subheader("Preset")
+
+        selection = _render_inference_filters(st, records)
+        candidates = filter_records(
+            records, model=selection["model"], module=selection["module"], technique=selection["technique"],
+        )
+        if not candidates:
+            st.warning("No inference preset matches the selected model, module, and technique.")
+            return
+        experiment_ids = [record["id"] for record in candidates]
+        current_id = st.session_state.get("infer_experiment", experiment_ids[0])
+        if current_id not in experiment_ids:
+            current_id = experiment_ids[0]
+            st.session_state["infer_experiment"] = current_id
+        experiment_kwargs = {"key": "infer_experiment"}
+        if "infer_experiment" not in st.session_state:
+            experiment_kwargs["index"] = experiment_ids.index(current_id)
+        selected_id = st.selectbox("Experiment", experiment_ids, **experiment_kwargs)
+        selected = next(record for record in candidates if record["id"] == selected_id)
+
+        if recommended is not None and selected_id == recommended.get("id"):
+            badge_col.markdown(
+                "<div style='text-align:right;padding-top:0.4rem;'><span style='background:#e7f6ee;"
+                "color:#059669;padding:0.25rem 0.65rem;border-radius:999px;font-size:0.8rem;"
+                "font-weight:600;'>&#127942; Recommended (best combined)</span></div>",
+                unsafe_allow_html=True,
+            )
+
+        if recommended is not None:
+            with st.container(border=True):
+                info_col, score_col = st.columns([3, 1])
+                info_col.caption("Best combined experiment")
+                info_col.markdown(f"**{recommended.get('id', '—')}**")
+                score_col.metric("mAP50-95", f"{_metric_value(recommended, 'map50_95'):.4f}")
+
+        detail_cols = st.columns(3)
+        detail_cols[0].caption("Model")
+        detail_cols[0].markdown(f"**{selected.get('model_id', 'baseline')}**")
+        detail_cols[1].caption("Module")
+        detail_cols[1].markdown(f"**{module_label(selected.get('module'))}**")
+        detail_cols[2].caption("Technique")
+        detail_cols[2].markdown(f"**{technique_label(selected.get('technique'))}**")
+
+        button_col1, button_col2 = st.columns(2)
+        with button_col1:
+            if recommended is not None and st.button(
+                "Use recommended preset", key="use_recommended_infer", type="primary", width="stretch"
+            ):
+                _queue_inference_preset(st, recommended, key_prefix="infer")
+                st.rerun()
+        with button_col2:
+            show_params = st.session_state.get("infer_show_params", False)
+            if st.button(
+                "Hide exact preprocessing parameters" if show_params else "Show exact preprocessing parameters",
+                key="infer_toggle_params",
+                width="stretch",
+            ):
+                st.session_state["infer_show_params"] = not show_params
+                st.rerun()
+
+    with upload_col, st.container(border=True):
+        st.subheader("Upload PCB images")
+        uploads = st.file_uploader(
+            "Upload PCB images or one ZIP folder",
+            type=["jpg", "jpeg", "png", "zip"],
+            accept_multiple_files=True,
+            key=uploads_key,
+            label_visibility="collapsed",
+        )
+        st.caption("Supported formats: JPG, PNG, ZIP")
+        run_clicked = st.button(
+            "Run detection", key="run_inference", type="primary", width="stretch", disabled=not uploads
+        )
+        if uploads and st.button("Clear all", key="clear_image_uploads", width="stretch"):
+            _clear_image_uploads(st)
+            st.rerun()
+
+    _render_recommendation_extras(st, records)
+
+    if st.session_state.get("infer_show_params", False):
+        _render_active_experiment(st, selected)
+        _render_reproducibility(st, selected, selected.get("model_id", "baseline"), key_prefix="infer")
+
     selected_model = selected.get("model_id", "baseline")
-    _render_reproducibility(st, selected, selected_model, key_prefix="infer")
     selected_checkpoint = _checkpoint_for_model(selected_model)
     if not selected_checkpoint.is_file():
         st.error(f"Checkpoint not available for {selected_model}: {selected_checkpoint}")
         return
-    uploads = st.file_uploader(
-        "Upload PCB images or one ZIP folder",
-        type=["jpg", "jpeg", "png", "zip"],
-        accept_multiple_files=True,
-        key=_image_upload_key(st),
-    )
-    if uploads and st.button("Clear all", key="clear_image_uploads"):
-        _clear_image_uploads(st)
-        st.rerun()
-    if uploads and st.button("Run detection on uploaded images", key="run_inference"):
+
+    if run_clicked and uploads:
         image_entries, skipped = extract_image_entries(
             [(upload.name, upload.getvalue()) for upload in uploads]
         )
@@ -819,6 +1036,7 @@ def _render_inference_mode(st, records: list[dict]) -> None:
         progress = st.progress(0.0, text=f"Loading YOLO model for {total_images} image(s)...")
         model = _load_model(str(selected_checkpoint))
         progress.progress(0.0, text=f"Processing image 0/{total_images}")
+        started = time.perf_counter()
         summary = []
         visual_results = []
         for index, (filename, payload) in enumerate(image_entries, start=1):
@@ -847,17 +1065,28 @@ def _render_inference_mode(st, records: list[dict]) -> None:
                 })
             finally:
                 _update_progress(progress, index, total_images, "image")
+        elapsed = time.perf_counter() - started
         progress.progress(1.0, text=f"Image detection complete: {len(summary)}/{total_images} succeeded")
+
+        _render_step_indicator(st, ["Select preset", "Upload images", "Review results"], 2)
+        _render_scroll_anchor(st, "infer-results")
+        header_col, download_col = st.columns([4, 1])
+        header_col.subheader("Image references")
         if summary:
-            st.dataframe(summary, width="stretch", hide_index=True)
-            st.download_button(
-                "Download inference summary",
+            download_col.download_button(
+                "Download summary (JSON)",
                 dumps_json(summary),
                 file_name="inference_summary.json",
                 mime="application/json",
                 key="inference_download",
             )
-        st.subheader("Visual results for every uploaded image")
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("mAP50-95", f"{_metric_value(selected, 'map50_95'):.4f}")
+        metric_cols[1].metric("Original detections", sum(row["original_model_detections"] for row in summary))
+        metric_cols[2].metric("Preprocessed detections", sum(row["preprocessed_detections"] for row in summary))
+        metric_cols[3].metric("Processing time", f"{elapsed:.1f} s")
+        if summary:
+            st.dataframe(summary, width="stretch", hide_index=True)
         for index, item in enumerate(visual_results):
             with st.expander(
                 f"{item['file']} - original model: {item['original_model_detections']} detections; "
@@ -868,39 +1097,110 @@ def _render_inference_mode(st, records: list[dict]) -> None:
 
 
 def _render_video_mode(st, records: list[dict]) -> None:
-    st.header("Video processing")
-    st.caption("Run the selected preprocessing and YOLO model frame by frame, then download the annotated video.")
-    _render_recommendation(st, records, key_prefix="video")
-    selection = _render_inference_filters(st, records, key_prefix="video")
-    candidates = filter_records(
-        records,
-        model=selection["model"],
-        module=selection["module"],
-        technique=selection["technique"],
+    _apply_pending_inference_preset(st, key_prefix="video")
+    _render_page_header(
+        st,
+        page=NAV_VIDEO,
+        title="Video processing",
+        subtitle="Apply a preprocessing preset frame by frame and review the annotated output.",
     )
-    if not candidates:
-        st.warning("No video preset matches the selected model, module, and technique.")
-        return
-    experiment_ids = [record["id"] for record in candidates]
-    current_id = st.session_state.get("video_experiment", experiment_ids[0])
-    if current_id not in experiment_ids:
-        current_id = experiment_ids[0]
-    selected_id = st.selectbox("Video parameter preset / experiment", experiment_ids, index=experiment_ids.index(current_id), key="video_experiment")
-    selected = next(record for record in candidates if record["id"] == selected_id)
-    _render_active_experiment(st, selected, heading="Selected video experiment")
+
+    has_upload = bool(st.session_state.get("video_inference_upload"))
+    _render_step_indicator(
+        st, ["Choose preset", "Upload video", "Process", "Export"], 1 if has_upload else 0
+    )
+
+    recommended = best_experiment(records)
+    preset_col, upload_col = st.columns(2)
+
+    with preset_col, st.container(border=True):
+        header_col, badge_col = st.columns([3, 2])
+        header_col.subheader("Processing preset")
+
+        selection = _render_inference_filters(st, records, key_prefix="video")
+        candidates = filter_records(
+            records, model=selection["model"], module=selection["module"], technique=selection["technique"],
+        )
+        if not candidates:
+            st.warning("No video preset matches the selected model, module, and technique.")
+            return
+        experiment_ids = [record["id"] for record in candidates]
+        current_id = st.session_state.get("video_experiment", experiment_ids[0])
+        if current_id not in experiment_ids:
+            current_id = experiment_ids[0]
+        selected_id = st.selectbox(
+            "Experiment", experiment_ids, index=experiment_ids.index(current_id), key="video_experiment"
+        )
+        selected = next(record for record in candidates if record["id"] == selected_id)
+
+        if recommended is not None and selected_id == recommended.get("id"):
+            badge_col.markdown(
+                "<div style='text-align:right;padding-top:0.4rem;'><span style='background:#e7f6ee;"
+                "color:#059669;padding:0.25rem 0.65rem;border-radius:999px;font-size:0.8rem;"
+                "font-weight:600;'>&#127942; Recommended (best combined)</span></div>",
+                unsafe_allow_html=True,
+            )
+
+        if recommended is not None:
+            with st.container(border=True):
+                info_col, score_col = st.columns([3, 1])
+                info_col.caption("Recommended best combined experiment")
+                info_col.markdown(f"**{recommended.get('id', '—')}**")
+                score_col.metric("mAP50-95", f"{_metric_value(recommended, 'map50_95'):.4f}")
+
+        detail_cols = st.columns(3)
+        detail_cols[0].caption("Model")
+        detail_cols[0].markdown(f"**{selected.get('model_id', 'baseline')}**")
+        detail_cols[1].caption("Module")
+        detail_cols[1].markdown(f"**{module_label(selected.get('module'))}**")
+        detail_cols[2].caption("Technique")
+        detail_cols[2].markdown(f"**{technique_label(selected.get('technique'))}**")
+
+        button_col1, button_col2 = st.columns(2)
+        with button_col1:
+            if recommended is not None and st.button(
+                "Use recommended preset", key="use_recommended_video", type="primary", width="stretch"
+            ):
+                _queue_inference_preset(st, recommended, key_prefix="video")
+                st.rerun()
+        with button_col2:
+            show_params = st.session_state.get("video_show_params", False)
+            if st.button(
+                "Hide exact preprocessing parameters" if show_params else "View exact preprocessing parameters",
+                key="video_toggle_params",
+                width="stretch",
+            ):
+                st.session_state["video_show_params"] = not show_params
+                st.rerun()
+
+    with upload_col, st.container(border=True):
+        st.subheader("Upload a short video")
+        st.caption("Upload a short video (recommended ≤ 60 seconds) to process.")
+        video = st.file_uploader(
+            "Upload a short video",
+            type=["mp4", "mov", "avi"],
+            accept_multiple_files=False,
+            key="video_inference_upload",
+            label_visibility="collapsed",
+        )
+        st.caption("Supports MP4, MOV, AVI")
+        run_clicked = st.button(
+            "Process video", key="run_video_detection", type="primary", width="stretch", disabled=not video
+        )
+
+    _render_recommendation_extras(st, records)
+
+    if st.session_state.get("video_show_params", False):
+        _render_active_experiment(st, selected, heading="Selected video experiment")
+        _render_reproducibility(st, selected, selected.get("model_id", "baseline"), key_prefix="video")
+
     selected_model = selected.get("model_id", "baseline")
-    _render_reproducibility(st, selected, selected_model, key_prefix="video")
     checkpoint = _checkpoint_for_model(selected_model)
     if not checkpoint.is_file():
         st.error(f"Checkpoint not available for {selected_model}: {checkpoint}")
         return
-    video = st.file_uploader(
-        "Upload a short video",
-        type=["mp4", "mov", "avi"],
-        accept_multiple_files=False,
-        key="video_inference_upload",
-    )
-    if video and st.button("Run video detection", key="run_video_detection"):
+    if run_clicked and video:
+        _render_step_indicator(st, ["Choose preset", "Upload video", "Process", "Export"], 2)
         progress = st.progress(0.0, text="Loading YOLO model...")
         try:
             model = _load_model(str(checkpoint))
@@ -931,6 +1231,9 @@ def _render_video_mode(st, records: list[dict]) -> None:
             progress.empty()
             st.error(str(error))
             return
+        _render_step_indicator(st, ["Choose preset", "Upload video", "Process", "Export"], 3)
+        _render_scroll_anchor(st, "video-results")
+        st.subheader("Output preview")
         cards = st.columns(4)
         cards[0].metric("Frames", summary["frames"])
         cards[1].metric("FPS", f"{summary['fps']:.2f}")
@@ -959,12 +1262,118 @@ def _render_video_mode(st, records: list[dict]) -> None:
         )
 
 
-MODE_RUN = "Run detection"
-MODE_STUDY = "Study"
-MODE_CAPTIONS = {
-    MODE_RUN: "Upload PCB images or video, apply a preprocessing pipeline, and compare detections before and after.",
-    MODE_STUDY: "Compare every experiment, rank techniques, inspect metrics and export the report.",
-}
+# Left-hand navigation pages. Each maps straight onto an existing, unmodified
+# render function -- this only changes how the user reaches them, not what
+# they do or how any preprocessing/detection pipeline runs.
+NAV_DASHBOARD = "Dashboard"
+NAV_EXPERIMENTS = "Experiments"
+NAV_IMAGE_INFERENCE = "Image processing"
+NAV_ANALYSIS = "Analysis & reports"
+NAV_VIDEO = "Video processing"
+NAV_PAGES = (NAV_DASHBOARD, NAV_EXPERIMENTS, NAV_IMAGE_INFERENCE, NAV_ANALYSIS, NAV_VIDEO)
+NAV_STATE_KEY = "nav_page"
+
+# Fixed by the frozen protocol (see README section 4) -- not derived from the
+# records, so shown as static project context rather than computed metrics.
+PROJECT_CONTEXT = {"Dataset": "HRIPCB_UPDATE", "Model": "YOLOv8s", "Split": "validation"}
+
+
+def _go_to(st, page: str) -> None:
+    st.session_state[NAV_STATE_KEY] = page
+    st.rerun()
+
+
+def _render_sidebar_nav(st) -> str:
+    current = st.session_state.get(NAV_STATE_KEY, NAV_DASHBOARD)
+    if current not in NAV_PAGES:
+        current = NAV_DASHBOARD
+    with st.sidebar:
+        logo_path = PROJECT_ROOT / "assets/logo.png"
+        if logo_path.is_file():
+            st.image(str(logo_path), width="stretch")
+        else:
+            st.markdown("### 🔬 HRIPCB Lab")
+        st.caption("A shared, report-ready workspace for Member 1–5 preprocessing experiments.")
+        st.caption("WORKSPACE")
+        with st.container(key="nav_list"):
+            for page in NAV_PAGES:
+                is_active = page == current
+                if st.button(
+                    page,
+                    key=f"nav_{page}",
+                    type="primary" if is_active else "secondary",
+                    width="stretch",
+                ) and not is_active:
+                    _go_to(st, page)
+        st.divider()
+        st.caption("PROJECT CONTEXT")
+        for label, value in PROJECT_CONTEXT.items():
+            st.markdown(f"**{label}**  \n{value}")
+    return current
+
+
+def _render_dashboard_home(st, records: list[dict]) -> None:
+    import pandas as pd
+
+    st.title("Dashboard")
+    st.caption("A clear starting point for running experiments, reviewing evidence, and exporting results.")
+
+    summary = record_metric_summary(records)
+    best = summary["best"]
+    cards = st.columns(4)
+    cards[0].metric("Total runs", summary["count"])
+    cards[1].metric("Combined runs", summary["combined_count"])
+    cards[2].metric("Modules", summary["module_count"])
+    cards[3].metric("Best mAP50-95", f"{_metric_value(best, 'map50_95'):.4f}" if best else "—")
+
+    st.subheader("Best combined result")
+    if best is None:
+        st.warning("No combined validation result is available yet.")
+    else:
+        with st.container(border=True):
+            info_col, action_col = st.columns([3, 1])
+            with info_col:
+                detail_cols = st.columns(4)
+                detail_cols[0].markdown(f"**Experiment**  \n`{best.get('id', '—')}`")
+                detail_cols[1].markdown(f"**Module**  \n{module_label(best.get('module'))}")
+                detail_cols[2].markdown(f"**Technique**  \n{technique_label(best.get('technique'))}")
+                detail_cols[3].markdown(f"**mAP50-95**  \n{_metric_value(best, 'map50_95'):.4f}")
+                st.caption(f"Validated on: {best.get('split', '—')}")
+            with action_col:
+                if st.button("👁️ Inspect experiment", key="dash_inspect", width="stretch"):
+                    st.session_state["compare_selected_id"] = best.get("id")
+                    _go_to(st, NAV_EXPERIMENTS)
+                if st.button("⚡ Use for inference", key="dash_use_inference", type="primary", width="stretch"):
+                    model_key, module_key, technique_key = inference_widget_keys("infer")
+                    st.session_state[model_key] = best.get("model_id", "baseline")
+                    st.session_state[module_key] = best.get("module", "all")
+                    st.session_state[technique_key] = best.get("technique", "all")
+                    st.session_state[f"infer_technique_sync"] = best.get("technique", "all")
+                    st.session_state["infer_experiment"] = best.get("id")
+                    _go_to(st, NAV_IMAGE_INFERENCE)
+
+    st.subheader("Workflow")
+    workflow = [
+        (NAV_EXPERIMENTS, "Compare experiments", "Evaluate and compare preprocessing experiments."),
+        (NAV_IMAGE_INFERENCE, "Image processing", "Run inference on PCB images using a selected model."),
+        (NAV_ANALYSIS, "Analysis & reports", "Explore results and generate performance reports."),
+        (NAV_VIDEO, "Video processing", "Run inference and analysis on PCB inspection videos."),
+    ]
+    for page, title, caption in workflow:
+        with st.container(border=True):
+            text_col, button_col = st.columns([5, 1])
+            text_col.markdown(f"**{title}**  \n{caption}")
+            if button_col.button("→", key=f"dash_workflow_{page}"):
+                _go_to(st, page)
+
+    st.subheader("Performance overview")
+    payload = build_analysis_payload(records)
+    overview = pd.DataFrame(payload["original_vs_combined"])
+    if not overview.empty:
+        st.bar_chart(
+            overview.set_index("label")[["map50_95"]].rename(columns={"map50_95": "mAP50-95"}),
+            height=300,
+        )
 
 
 def main(results_path: Path) -> None:
@@ -978,39 +1387,67 @@ def main(results_path: Path) -> None:
     .block-container { max-width: 1500px; padding-top: 2.2rem; }
     div[data-testid="stMetric"] { background: white; border: 1px solid #dce5ef; border-radius: 16px; padding: 12px 16px; box-shadow: 0 12px 32px rgba(40,64,92,.07); }
     button[kind="primary"] { background: #2563eb; }
+    /* File uploader's own "Browse files" button: forced blue and centered
+       within its dropzone (Streamlit's own :disabled/default style otherwise
+       wins and shows plain gray, left-aligned). */
+    [data-testid="stFileUploaderDropzone"] { justify-content: center; }
+    [data-testid="stFileUploaderDropzone"] button {
+        background: #2563eb !important;
+        border-color: #2563eb !important;
+        color: white !important;
+        margin: 0 auto;
+    }
+    [data-testid="stFileUploaderDropzone"] button:hover {
+        background: #1d4ed8 !important;
+        border-color: #1d4ed8 !important;
+        color: white !important;
+    }
     [data-testid="stTabs"] button[role="tab"] { color: #172033; }
+    section[data-testid="stSidebar"] button { justify-content: flex-start; text-align: left; }
+    /* Nav list: buttons stacked with no gaps, no background, hover/active highlight only. */
+    .st-key-nav_list [data-testid="stVerticalBlock"] { gap: 0rem; }
+    .st-key-nav_list div[data-testid="stButton"] > button {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        color: #172033;
+        font-weight: 500;
+        padding: 0.6rem 0.9rem;
+    }
+    .st-key-nav_list div[data-testid="stButton"] > button:hover {
+        background: #e7edf6;
+        color: #172033;
+    }
+    .st-key-nav_list div[data-testid="stButton"] > button[kind="primary"] {
+        background: #e2e8f5;
+        color: #1d4ed8;
+        border: none;
+    }
+    .st-key-nav_list div[data-testid="stButton"] > button[kind="primary"]:hover {
+        background: #d7e1f5;
+    }
     </style>
     """, unsafe_allow_html=True)
 
     records = _load_records(results_path)
-    st.title("HRIPCB Preprocessing Lab")
-    st.caption("A shared, report-ready workspace for Member 1–5 preprocessing experiments.")
     if not records:
         st.error(f"No experiment records were found at {results_path}.")
         return
-    # segmented_control returns None until the user picks, so fall back to Run.
-    mode = st.segmented_control(
-        "Mode",
-        [MODE_RUN, MODE_STUDY],
-        default=MODE_RUN,
-        key="app_mode",
-        label_visibility="collapsed",
-    ) or MODE_RUN
-    st.caption(MODE_CAPTIONS[mode])
 
-    if mode == MODE_RUN:
-        tabs = st.tabs(["Run image inference", "Video processing"])
-        with tabs[0]:
-            _render_inference_mode(st, records)
-        with tabs[1]:
-            _render_video_mode(st, records)
-    else:
-        tabs = st.tabs(["Compare experiments", "Analysis & reports"])
-        with tabs[0]:
-            _render_comparison_mode(st, records, results_path)
-        with tabs[1]:
-            _render_analysis(st, records)
-            _render_report_tools(st, records)
+    page = _render_sidebar_nav(st)
+
+    if page == NAV_DASHBOARD:
+        _render_dashboard_home(st, records)
+    elif page == NAV_EXPERIMENTS:
+        _render_comparison_mode(st, records, results_path)
+    elif page == NAV_IMAGE_INFERENCE:
+        _render_inference_mode(st, records)
+    elif page == NAV_ANALYSIS:
+        _render_analysis(st, records)
+        _render_report_tools(st, records)
+    elif page == NAV_VIDEO:
+        _render_video_mode(st, records)
 
 
 if __name__ == "__main__":

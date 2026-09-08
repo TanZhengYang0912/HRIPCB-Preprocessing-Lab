@@ -16,6 +16,7 @@ from hripcb_dashboard.batch import extract_image_entries
 from hripcb_dashboard import reporting
 from hripcb_dashboard.reporting import build_report_pdf, format_parameters, record_metric_summary, report_chart_payload
 from hripcb_dashboard.analysis import build_analysis_payload
+from hripcb_dashboard import video as video_dashboard
 from hripcb_dashboard.video import process_video
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 from build_official_test_comparison import build as build_official_test_comparison
@@ -307,8 +308,8 @@ def test_streamlit_exposes_extra_effort_sections_and_frozen_protocol():
         "Upload PCB images or one ZIP folder",
         '"zip"',
         "Video processing",
-        '_render_recommendation(st, records, key_prefix="video")',
-        'key=f"use_recommended_{key_prefix}"',
+        "_render_recommendation_extras(st, records)",
+        'key="use_recommended_video"',
         "Download annotated video",
         "imgsz",
         "conf",
@@ -341,6 +342,17 @@ class _FakeModel:
     def predict(self, **kwargs):
         assert kwargs["imgsz"] == 1024
         return [_FakeResult()]
+
+
+def test_bundled_ffmpeg_is_used_when_system_ffmpeg_is_unavailable(monkeypatch):
+    monkeypatch.setattr(video_dashboard.shutil, "which", lambda name: None)
+    monkeypatch.setattr(
+        video_dashboard.imageio_ffmpeg,
+        "get_ffmpeg_exe",
+        lambda: "/bundled/ffmpeg",
+    )
+
+    assert video_dashboard._ffmpeg_executable() == "/bundled/ffmpeg"
 
 
 def test_process_video_writes_annotated_video_and_summary(tmp_path):

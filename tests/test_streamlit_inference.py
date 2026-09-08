@@ -34,6 +34,39 @@ def test_clear_image_uploads_advances_uploader_key():
     assert dashboard._image_upload_key(streamlit) == "image_inference_uploads_1"
 
 
+def test_recommended_preset_updates_widget_state_before_rendering_widgets():
+    class Streamlit:
+        session_state = {}
+
+    streamlit = Streamlit()
+    recommended = {
+        "id": "member1-gaussian",
+        "model_id": "yolov8s",
+        "module": "member1",
+        "technique": "gaussian_clahe",
+    }
+
+    dashboard._queue_inference_preset(streamlit, recommended, key_prefix="infer")
+
+    assert streamlit.session_state == {
+        "infer_pending_preset": {
+            "experiment": "member1-gaussian",
+            "model": "yolov8s",
+            "module": "member1",
+            "technique": "gaussian_clahe",
+        }
+    }
+
+    dashboard._apply_pending_inference_preset(streamlit, key_prefix="infer")
+
+    assert streamlit.session_state == {
+        "infer_model": "yolov8s",
+        "infer_module": "member1",
+        "infer_technique": "gaussian_clahe",
+        "infer_experiment": "member1-gaussian",
+    }
+
+
 def test_progress_update_reports_batch_position():
     class Progress:
         def __init__(self):
