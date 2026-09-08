@@ -96,6 +96,37 @@ def test_video_experiment_widget_avoids_duplicate_session_default():
     assert 'if "video_experiment" not in st.session_state:' in source
 
 
+def test_module_change_applies_that_modules_best_filtering_contrast_and_experiment():
+    class Streamlit:
+        def __init__(self):
+            self.session_state = {}
+
+    records = [
+        {
+            "id": "member4_best",
+            "model_id": "baseline",
+            "module": "member4",
+            "technique": "nlm_msr",
+            "split": "val",
+            "evaluation_type": "ablation",
+            "metrics": {"map50_95": 0.51},
+        }
+    ]
+
+    for key_prefix in ("infer", "video"):
+        streamlit = Streamlit()
+        dashboard._apply_module_recommendation(streamlit, records, "member4", key_prefix=key_prefix)
+
+        assert streamlit.session_state == {
+            f"{key_prefix}_filtering": "nlm",
+            f"{key_prefix}_contrast": "msr",
+            f"{key_prefix}_technique": "nlm_msr",
+            f"{key_prefix}_technique_sync": "nlm_msr",
+            f"{key_prefix}_experiment": "member4_best",
+            f"{key_prefix}_module_sync": "member4",
+        }
+
+
 def test_progress_update_reports_batch_position():
     class Progress:
         def __init__(self):

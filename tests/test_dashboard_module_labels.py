@@ -98,6 +98,13 @@ def test_inference_module_widgets_use_display_names_and_no_member_number_copy():
     assert "Member 2 final assignment preset" not in source
 
 
+def test_inference_filters_recommend_best_stages_when_module_changes():
+    source = Path("scripts/streamlit_dashboard.py").read_text(encoding="utf-8")
+
+    assert "_apply_module_recommendation" in source
+    assert 'if st.session_state.get(module_sync_key) != selection["module"]:' in source
+
+
 from hripcb_dashboard.reporting import record_metric_summary
 
 

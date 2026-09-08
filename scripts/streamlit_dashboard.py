@@ -492,6 +492,26 @@ def _set_inference_technique_state(st, technique: str, *, key_prefix: str) -> No
     st.session_state[f"{key_prefix}_technique_sync"] = technique
 
 
+def _apply_module_recommendation(
+    st, records: list[dict], module: str, *, key_prefix: str
+) -> None:
+    """Apply the best validation preset whenever the selected module changes."""
+
+    recommendation = next(
+        (row for row in best_by_module(records) if row.get("module") == module),
+        None,
+    )
+    if recommendation is None:
+        _set_inference_technique_state(st, "all", key_prefix=key_prefix)
+        st.session_state[f"{key_prefix}_experiment"] = None
+    else:
+        _set_inference_technique_state(
+            st, recommendation.get("technique", "all"), key_prefix=key_prefix
+        )
+        st.session_state[f"{key_prefix}_experiment"] = recommendation.get("id")
+    st.session_state[f"{key_prefix}_module_sync"] = module
+
+
 def _apply_pending_inference_preset(st, *, key_prefix: str) -> None:
     """Apply a queued preset before Streamlit instantiates its widgets."""
 
@@ -593,6 +613,14 @@ def _render_inference_filters(st, records: list[dict], *, key_prefix: str = "inf
             st, "Module", module_options, key=module_key, format_func=_module_option_label
         )
     selection = normalize_selection(records, selection)
+
+    module_sync_key = f"{key_prefix}_module_sync"
+    if st.session_state.get(module_sync_key) != selection["module"]:
+        _apply_module_recommendation(
+            st, records, selection["module"], key_prefix=key_prefix
+        )
+        selection["technique"] = st.session_state[technique_key]
+        selection = normalize_selection(records, selection)
 
     technique_options = option_values(
         records, model=selection["model"], module=selection["module"]
