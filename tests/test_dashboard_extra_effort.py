@@ -59,6 +59,7 @@ def test_extract_image_entries_ignores_macos_zip_metadata():
                     {
                         "__MACOSX/test/._one.jpg": b"AppleDouble metadata",
                         "__MACOSX/test/._two.jpg": b"AppleDouble metadata",
+                        r"__macosx\test\._three.jpg": b"AppleDouble metadata",
                         "test/one.jpg": encoded.tobytes(),
                     }
                 ),

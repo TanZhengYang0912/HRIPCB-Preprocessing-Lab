@@ -19,7 +19,11 @@ def _is_safe_archive_name(name: str) -> bool:
 def _is_macos_archive_metadata(name: str) -> bool:
     """Identify Finder metadata emitted by macOS when creating a ZIP archive."""
 
-    return any(part == "__MACOSX" or part.startswith("._") for part in PurePosixPath(name).parts)
+    normalized_name = name.replace("\\", "/")
+    return any(
+        part.casefold() == "__macosx" or part.startswith("._")
+        for part in PurePosixPath(normalized_name).parts
+    )
 
 
 def _append_image(target: list[tuple[str, bytes]], skipped: list[str], name: str, payload: bytes, max_file_bytes: int) -> None:
