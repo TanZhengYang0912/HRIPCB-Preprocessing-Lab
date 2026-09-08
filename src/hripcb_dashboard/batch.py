@@ -16,6 +16,12 @@ def _is_safe_archive_name(name: str) -> bool:
     return bool(name) and not path.is_absolute() and ".." not in path.parts
 
 
+def _is_macos_archive_metadata(name: str) -> bool:
+    """Identify Finder metadata emitted by macOS when creating a ZIP archive."""
+
+    return any(part == "__MACOSX" or part.startswith("._") for part in PurePosixPath(name).parts)
+
+
 def _append_image(target: list[tuple[str, bytes]], skipped: list[str], name: str, payload: bytes, max_file_bytes: int) -> None:
     suffix = PurePosixPath(name).suffix.lower()
     if suffix not in IMAGE_EXTENSIONS:
@@ -34,7 +40,8 @@ def extract_image_entries(
     """Return image payloads from direct uploads and ZIP archives.
 
     ZIP members are never written to disk. Absolute paths and traversal members
-    are skipped before reading, preventing archive path traversal.
+    are skipped before reading, preventing archive path traversal. Finder
+    metadata members created by macOS are ignored.
     """
 
     images: list[tuple[str, bytes]] = []
@@ -51,6 +58,8 @@ def extract_image_entries(
                         continue
                     if not _is_safe_archive_name(member.filename):
                         skipped.append(f"Unsafe archive path skipped: {member.filename}")
+                        continue
+                    if _is_macos_archive_metadata(member.filename):
                         continue
                     if member.file_size > max_file_bytes:
                         skipped.append(f"File exceeds size limit and was skipped: {member.filename}")

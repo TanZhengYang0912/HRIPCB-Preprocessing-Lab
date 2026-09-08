@@ -46,6 +46,30 @@ def test_extract_image_entries_accepts_images_and_rejects_unsafe_or_unsupported_
     assert any("unsupported" in message.lower() for message in skipped)
 
 
+def test_extract_image_entries_ignores_macos_zip_metadata():
+    image = np.zeros((4, 4, 3), dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", image)
+    assert ok
+
+    files, skipped = extract_image_entries(
+        [
+            (
+                "macos-batch.zip",
+                _zip_bytes(
+                    {
+                        "__MACOSX/test/._one.jpg": b"AppleDouble metadata",
+                        "__MACOSX/test/._two.jpg": b"AppleDouble metadata",
+                        "test/one.jpg": encoded.tobytes(),
+                    }
+                ),
+            )
+        ]
+    )
+
+    assert [name for name, _ in files] == ["test/one.jpg"]
+    assert skipped == []
+
+
 def test_record_metric_summary_ranks_runs_and_calculates_coverage():
     records = [
         {"id": "a", "model_id": "baseline", "module": "member1", "metrics": {"map50_95": 0.40, "f1": 0.80}},
