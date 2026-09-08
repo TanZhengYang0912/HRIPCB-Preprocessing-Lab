@@ -7,14 +7,27 @@ import shutil
 import subprocess
 
 import cv2
+import imageio_ffmpeg
 
 from hripcb_preprocessing.candidates import apply_candidate
+
+
+def _ffmpeg_executable() -> str | None:
+    """Prefer a system ffmpeg, then use the dependency-bundled executable."""
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        return ffmpeg
+    try:
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except (OSError, RuntimeError):
+        return None
 
 
 def _make_browser_compatible(input_path: Path, output_path: Path) -> bool:
     """Transcode OpenCV's temporary MP4 into H.264 when FFmpeg is available."""
 
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = _ffmpeg_executable()
     if not ffmpeg:
         input_path.replace(output_path)
         return False

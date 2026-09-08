@@ -42,6 +42,13 @@ def test_streamlit_cloud_runtime_versions_are_reproducible():
         assert dependency in requirements
 
 
+def test_streamlit_cloud_does_not_use_expired_apt_dependency_source():
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert not (PROJECT_ROOT / "packages.txt").exists()
+    assert "imageio-ffmpeg==0.6.0" in requirements
+
+
 def test_default_results_path_is_project_relative(monkeypatch, tmp_path):
     project_root = tmp_path / "project"
     relative_path = Path("runs/project_validation_comparison/results.json")
