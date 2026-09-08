@@ -687,7 +687,7 @@ def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None
             st.caption(f"The vertical line marks the unprocessed baseline at {baseline_value:.4f}.")
         bars = (
             alt.Chart(alt.Data(values=chart_rows))
-            .mark_bar(cornerRadiusEnd=4, height=17)
+            .mark_bar(cornerRadiusEnd=4)
             .encode(
                 x=alt.X("value:Q", title=_label(sort_metric)),
                 y=alt.Y("label:N", sort="-x", title=None),
@@ -711,7 +711,7 @@ def _render_comparison_mode(st, records: list[dict], results_path: Path) -> None
                 .mark_rule(color="#172033", strokeWidth=2)
                 .encode(x="baseline:Q")
             )
-        st.altair_chart(alt.layer(*layers).properties(height=max(120, 26 * len(chart_rows))), use_container_width=True)
+        st.altair_chart(alt.layer(*layers).properties(height=alt.Step(26)), use_container_width=True)
 
     table = []
     for record in filtered:

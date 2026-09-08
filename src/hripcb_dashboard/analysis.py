@@ -250,16 +250,23 @@ def ranking_chart_rows(
     ]
     baseline = max((_metric(record, metric) for record in originals), default=None)
 
-    rows = [
-        {
+    # Parameter sweeps repeat the same module+technique many times over. Keep
+    # only each one's best run, otherwise the chart grows a bar per sweep step
+    # and Vega drops most of the duplicate axis labels.
+    best_per_label: dict[str, dict] = {}
+    for record in source:
+        if str(record.get("technique", "")).lower() == "original":
+            continue
+        row = {
             "label": f"{module_label(record.get('module'))} / {technique_label(record.get('technique'))}",
             "member": module_label(record.get("module")),
             "technique": technique_label(record.get("technique")),
             "value": _metric(record, metric),
             "is_extra": is_extra_study(record.get("module")),
         }
-        for record in source
-        if str(record.get("technique", "")).lower() != "original"
-    ]
-    rows.sort(key=lambda row: (-row["value"], row["label"]))
+        incumbent = best_per_label.get(row["label"])
+        if incumbent is None or row["value"] > incumbent["value"]:
+            best_per_label[row["label"]] = row
+
+    rows = sorted(best_per_label.values(), key=lambda row: (-row["value"], row["label"]))
     return rows, baseline

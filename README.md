@@ -1,25 +1,27 @@
 # HRIPCB Preprocessing Lab
 
-A shared PCB defect-detection experiment and demonstration prototype. The project uses the HRIPCB dataset and YOLOv8s to compare image-preprocessing techniques across five member modules with one fixed evaluation protocol.
+A shared PCB defect-detection experiment and demonstration prototype. The project uses the HRIPCB dataset and YOLOv8s to compare image-preprocessing techniques across four assigned member modules with one fixed evaluation protocol, plus one additional module kept as an extra study.
 
 The workflow has two stages:
 
-1. Compare preprocessing techniques with the same frozen baseline checkpoint.
-2. Select the best validation result, then retrain a final YOLO model with the same training configuration as the baseline.
+1. Compare preprocessing techniques with the same frozen baseline checkpoint on the validation split.
+2. Deploy the winning combination in the Streamlit prototype, which applies it to user-supplied images and video and runs the same frozen detector on the result.
 
 ## 1. Scope
 
 The dataset contains six PCB defect classes: `Missing_hole`, `Mouse_bite`, `Open_circuit`, `Short`, `Spurious_copper`, and `Spur`.
 
-| Module | Noise removal | Contrast enhancement |
-|---|---|---|
-| member1 | Gaussian Filtering | BBHE |
-| member2 | Wavelet Denoising | Homomorphic Filtering |
-| member3 | Bilateral Filtering | AGCWD |
-| member4 | Non-local Means | Multi-Scale Retinex |
-| member5 | Total Variation (Chambolle) | Top-hat + Black-hat |
+| Assigned member | Internal module key | Noise removal | Contrast enhancement |
+|---|---|---|---|
+| Joshua Lau Hao Jie | `member4` | Non-local Means | Multi-Scale Retinex |
+| Ng Chi Hao | `member5` | Total Variation (Chambolle) | Top-hat + Black-hat |
+| Tan Chun Jie | `member1` | Gaussian Filtering | BBHE |
+| Tan Zheng Yang | `member3` | Bilateral Filtering | AGCWD |
+| Extra study, not an assigned member | `member2` | Wavelet Denoising | Homomorphic Filtering |
 
-`baseline` is the shared control model, separate from the five member modules.
+The internal `memberN` keys are historical and do not follow the order of the group contract. The dashboard therefore displays each module by the assigned member's name through `module_label()` in `src/hripcb_dashboard/analysis.py`, and `member2` is shown as `Extra study` and excluded from every member count.
+
+`baseline` is the shared control model, separate from the member modules.
 
 ## 2. Repository Structure
 
@@ -159,12 +161,12 @@ Each sweep changes only preprocessing parameters:
 | Module | Candidate parameters |
 |---|---|
 | member1 | Gaussian kernel `5, 7, 9`; sigmaX `1.0, 1.5, 2.0`; BBHE strength `0.25, 0.5, 0.7, 1.0` |
-| member2 | Final required sequence: Wavelet `coif2`, VisuShrink, soft threshold, automatic level; then Homomorphic `gamma_low=0.7`, `gamma_high=1.3`, `cutoff=20`, `sharpness=2.0` |
+| member2 (extra study) | Wavelet `coif2`, VisuShrink, soft threshold, automatic level; then Homomorphic `gamma_low=0.7`, `gamma_high=1.3`, `cutoff=20`, `sharpness=2.0` |
 | member3 | Bilateral diameter `5, 7, 9`; sigma colour `25, 50, 75`; AGCWD gamma `0.8, 1.0, 1.2` |
-| member4 | NLM `h=3, 7, 10`; MSR scales `(15, 25, 2)`, `(15, 50, 150)`, `(20, 80, 160)` |
+| member4 | NLM `h=3, 7, 10`; MSR scales `(15, 80, 250)`, `(15, 50, 150)`, `(20, 80, 160)` |
 | member5 | TV weight `0.01, 0.02, 0.05`; elliptical kernel `5, 9, 15`; Top-hat and Black-hat amounts each `0.5, 1.0` |
 
-Member 2's required combined winner is `wavelet_stage1_winner_homomorphic_gl0p7_gh1p3_c20p0_s2p0` with validation `mAP50-95=0.5171`. It applies Wavelet before Homomorphic and uses both required techniques. This is a validation result for parameter selection, not a final test score.
+Member 2 is an extra study rather than an assigned module. Its best combined candidate is `wavelet_stage1_winner_homomorphic_gl0p7_gh1p3_c20p0_s2p0` at validation `mAP50-95=0.5171`. Its records remain in the results file and stay visible in the dashboard, labelled `Extra study`, but it is excluded from the four-member comparison and from the written report.
 
 ### Member 5 resumable search
 
@@ -225,7 +227,7 @@ The dashboard has four main tabs:
 
 1. **Compare experiments** — filter by model, module, technique, split and run type, then sort by mAP50-95, mAP50, F1, Precision or Recall. The default view is **All runs**; the Best recommendation still uses combined techniques only. Original, noise-only and contrast-only records remain available as reference runs.
 2. **Run image inference** — upload images, select the shared baseline model and technique, and view the original image, preprocessed image and YOLO result.
-3. **Analysis & reports** — view displayed experiment count, five member modules, shared baseline controls, model coverage, ranking and protocol details.
+3. **Analysis & reports** — view displayed experiment count, the four member modules, the extra study, shared baseline controls, model coverage, ranking and protocol details.
 4. **Video processing** — upload a short video and run preprocessing plus frame-by-frame YOLO detection, producing browser-compatible H.264 output when available.
 
 Export a PDF, CSV and JSON report:
@@ -248,7 +250,7 @@ Current saved official test reference results:
 |---|---:|---:|---:|---:|
 | Baseline YOLO + original | 0.4890 | 0.9515 | 0.9233 | 0.9372 |
 
-The selected Member 2 prototype is the scanned Wavelet `coif2` + Homomorphic combination (`gamma_low=0.7`, `gamma_high=1.3`, `cutoff=20`, `sharpness=2.0`). The single Wavelet result scored higher in isolation, but it is not the final Member 2 choice because the assignment requires both techniques. The combined candidate still requires an official frozen test run before a new test score can be reported.
+The combination deployed in the prototype is TV Denoising followed by Top-hat and Black-hat morphology (`tv_weight=0.02`, `morphology_kernel_size=5`, `top_hat_amount=0.5`, `black_hat_amount=1.0`), which reaches validation `mAP50-95=0.5239`. It is the highest scoring of the four assigned combinations and the only one to clear the 0.5151 validation baseline. TV denoising applied on its own scores higher still at 0.5281, so the deployed pairing is the best combination rather than the best configuration overall.
 
 ## 10. Image, ZIP and Video Testing
 
@@ -287,7 +289,7 @@ git diff --check
 After changing the dashboard, start Streamlit and check `http://localhost:8501`. Important checks include:
 
 - Module filtering does not incorrectly show every technique for every module.
-- The baseline control is not counted as a fifth member module.
+- The baseline control is not counted as a member module, and the `member2` extra study is not counted as one either.
 - Model, technique, split and sorting filters work together.
 - Missing checkpoints, invalid files, empty detections and video-encoding failures show readable messages.
 - JSON, PDF and CSV exports do not contain `Infinity` or other non-serializable values.

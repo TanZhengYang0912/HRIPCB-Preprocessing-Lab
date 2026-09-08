@@ -184,6 +184,46 @@ def test_streamlit_dashboard_uses_no_emoji_in_mode_labels():
     assert all(ord(character) < 128 for character in mode_block)
 
 
+def test_ranking_chart_rows_keeps_only_the_best_run_per_technique():
+    # A parameter sweep produces many runs of the same module+technique. The
+    # chart must collapse them to one bar each, or it grows to hundreds of rows
+    # with duplicate labels that Vega then drops.
+    records = [
+        _record("member5", "tv_top_black_hat", 0.4801, "sweep_w1"),
+        _record("member5", "tv_top_black_hat", 0.5239, "sweep_w2"),
+        _record("member5", "tv_top_black_hat", 0.5102, "sweep_w3"),
+        _record("member4", "nlm_msr", 0.2248, "m4_combo"),
+    ]
+
+    rows, _ = ranking_chart_rows(records)
+
+    assert [row["label"] for row in rows] == [
+        "Ng Chi Hao / TV + Top-hat + Black-hat",
+        "Joshua Lau Hao Jie / NLM + MSR",
+    ]
+    assert rows[0]["value"] == 0.5239
+
+
+def test_ranking_chart_row_count_matches_distinct_labels():
+    records = [
+        _record("member5", "tv", 0.50 + index / 1000, f"tv_{index}")
+        for index in range(20)
+    ] + [_record("member1", "gaussian_bbhe", 0.44, "g1")]
+
+    rows, _ = ranking_chart_rows(records)
+
+    assert len(rows) == 2
+
+
+def test_ranking_chart_is_sized_per_row_not_by_fixed_bar_height():
+    source = Path("scripts/streamlit_dashboard.py").read_text(encoding="utf-8")
+
+    # A pinned mark height leaves thin bars floating in stretched bands
+    # whenever the chart is resized (fullscreen, or few rows).
+    assert "height=17" not in source
+    assert "alt.Step(" in source
+
+
 import re
 
 # Matches a `.get("module"...)`/`.get('module'...)` call sitting inside an
