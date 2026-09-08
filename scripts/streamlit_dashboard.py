@@ -114,6 +114,12 @@ def _metric_value(record: dict, key: str) -> float:
         return 0.0
 
 
+def _rank_module_recommendations(rows: list[dict]) -> list[dict]:
+    """Order module recommendations from the highest mAP50-95 downward."""
+
+    return sorted(rows, key=lambda row: _metric_value(row, "map50_95"), reverse=True)
+
+
 def _resolve_preview_path(results_path: Path, preview: str | None) -> Path | None:
     if not preview:
         return None
@@ -720,7 +726,7 @@ def _render_recommendation_extras(st, records: list[dict]) -> None:
             f"validation mAP50-95={_metric_value(member2, 'map50_95'):.4f}."
         )
 
-    module_rows = best_by_module(records)
+    module_rows = _rank_module_recommendations(best_by_module(records))
     if module_rows:
         with st.expander("Best experiment by module"):
             st.dataframe(

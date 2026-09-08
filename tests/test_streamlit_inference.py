@@ -102,6 +102,18 @@ def test_video_experiment_widget_repairs_stale_session_selection():
     assert 'st.session_state["video_experiment"] = current_id' in source
 
 
+def test_module_recommendations_rank_highest_map50_95_first():
+    rows = [
+        {"id": "lower", "metrics": {"map50_95": 0.42}},
+        {"id": "highest", "metrics": {"map50_95": 0.91}},
+        {"id": "middle", "metrics": {"map50_95": 0.63}},
+    ]
+
+    ranked = dashboard._rank_module_recommendations(rows)
+
+    assert [row["id"] for row in ranked] == ["highest", "middle", "lower"]
+
+
 def test_module_change_applies_that_modules_best_filtering_contrast_and_experiment():
     class Streamlit:
         def __init__(self):
